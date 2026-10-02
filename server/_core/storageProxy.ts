@@ -8,13 +8,8 @@ function isSafeKey(key: string) {
 /** Redirects `/manus-storage/<key>` (the URL form stored in the database) to a short-lived signed object URL. */
 export function registerStorageProxy(app: Express) {
   app.get("/manus-storage/*", async (req, res) => {
-    let key: string;
-    try {
-      key = decodeURIComponent((req.params as Record<string, string>)[0] ?? "");
-    } catch {
-      res.status(400).send("Invalid storage key");
-      return;
-    }
+    // Express has already percent-decoded the wildcard; decoding again would corrupt keys containing "%".
+    const key = (req.params as Record<string, string>)[0] ?? "";
     if (!isSafeKey(key)) {
       res.status(400).send("Invalid storage key");
       return;

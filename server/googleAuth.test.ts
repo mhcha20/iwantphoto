@@ -46,12 +46,19 @@ describe("Google sign-in", () => {
 
   it("starts login with a state cookie that matches the Google redirect", async () => {
     const res = makeRes();
-    await setup()["/api/auth/google"]({ protocol: "https", headers: {} }, res);
+    await setup()["/api/auth/google"]({ protocol: "https", hostname: "iwantphoto.com", headers: {} }, res);
     const url = new URL(res.redirectedTo);
     expect(url.origin + url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
     expect(url.searchParams.get("redirect_uri")).toBe("https://iwantphoto.com/api/oauth/callback");
     expect(url.searchParams.get("scope")).toBe("openid email profile");
     expect(url.searchParams.get("state")).toBe(res.cookies[OAUTH_STATE_COOKIE]);
+  });
+
+  it("sends visitors on a non-canonical host (www) to the canonical host before setting the state cookie", async () => {
+    const res = makeRes();
+    await setup()["/api/auth/google"]({ protocol: "https", hostname: "www.iwantphoto.com", headers: {} }, res);
+    expect(res.redirectedTo).toBe("https://iwantphoto.com/api/auth/google");
+    expect(res.cookies[OAUTH_STATE_COOKIE]).toBeUndefined();
   });
 
   it("rejects a callback whose state does not match the browser cookie", async () => {

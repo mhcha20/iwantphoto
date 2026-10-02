@@ -30,6 +30,13 @@ export function registerOAuthRoutes(app: Express) {
       res.status(503).json({ error: "Google sign-in is not configured" });
       return;
     }
+    // The state cookie is host-only, so the whole flow must stay on the canonical host
+    // (e.g. www.iwantphoto.com → iwantphoto.com) that the Google redirect URI points to.
+    const canonical = new URL(ENV.appBaseUrl);
+    if (req.hostname && req.hostname !== canonical.hostname) {
+      res.redirect(302, `${canonical.origin}/api/auth/google`);
+      return;
+    }
     const state = randomBytes(24).toString("base64url");
     res.cookie(OAUTH_STATE_COOKIE, state, {
       httpOnly: true,

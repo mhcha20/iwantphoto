@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { ENV } from "./env";
 import { serveStatic, setupVite } from "./vite";
 import { registerStripeWebhook } from "../stripeWebhook";
 
@@ -30,6 +31,9 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  if (process.env.NODE_ENV === "production" && ENV.cookieSecret.length < 32) {
+    throw new Error("JWT_SECRET must be set to at least 32 characters in production");
+  }
   const app = express();
   const server = createServer(app);
   // Liveness probe for the host (Railway healthcheck); deliberately free of DB/auth work.

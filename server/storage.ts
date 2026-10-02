@@ -2,7 +2,7 @@
 // Stored URLs stay `/manus-storage/{key}` so existing database rows keep working;
 // the proxy in _core/storageProxy.ts redirects them to short-lived signed URLs.
 
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ENV } from "./_core/env";
 
@@ -111,4 +111,10 @@ export async function storageGetByteSize(relKey: string): Promise<number> {
   const byteSize = Number(head.ContentLength);
   if (!Number.isSafeInteger(byteSize) || byteSize < 0) throw new Error("Storage object returned no valid Content-Length");
   return byteSize;
+}
+
+/** Removes one object; used by the deployment verification script to clean up its probe file. */
+export async function storageDelete(relKey: string): Promise<void> {
+  const { client, bucket } = getS3();
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: normalizeKey(relKey) }));
 }

@@ -1,0 +1,454 @@
+UI verification, 2026-09-15:
+- Desktop preview confirmed the brand header, Cantonese hero content, floral hero illustration, prominent upload CTA, and editor entry region render without visible layout errors.
+- Mobile full-page preview at 390px confirmed the header, hero, image upload target, tool cards, three-step explainer, and privacy footer scale into a single-column layout without horizontal clipping.
+- Build, TypeScript check, and four Vitest tests passed before this visual review.
+
+Layout verification, 2026-09-15:
+- Root cause: Tailwind v4 did not apply centering/max-width to the project’s `.container` utility.
+- Fix: Added explicit responsive `.container` width, max-width, auto margins, and horizontal padding rules in client/src/index.css.
+- Desktop 1440px screenshot: header, hero, and editor section now align to one centered content rail with balanced margins.
+- Mobile 390px screenshot: header and hero retain readable, symmetric gutters without horizontal overflow.
+
+Business platform redesign verification, 2026-09-15:
+The product was reframed as 影務台｜FRAMEFLOW, a professional AI image workflow for SMEs rather than a floral-tribute-only tool. The 1440px preview confirms a centered B2B hero, compact visual workspace preview, practical upload editor, industry solutions, three-step workflow, and data-protection close. The 390px preview confirms the hierarchy collapses into a readable single-column business interface without clipping. TypeScript checking, 13 Vitest tests, and the production build passed.
+
+Brush-selection verification, 2026-09-16:
+The editor now offers a manual brush workflow for precision background refinement and targeted cleanup. Users enable the brush only on an original image, adjust brush size, paint red selection strokes, manually confirm the selection, and submit the marked area to AI. The backend stores the mask as a second PNG reference image and instructs AI to edit only red-marked areas. Desktop and mobile editor layouts remain intact; TypeScript checking, the production build, and 14 Vitest tests passed.
+
+Iwantphoto brand verification, 2026-09-16:
+All customer-facing identity has been updated to Iwantphoto, including browser title, header wordmark, footer, downloaded and shared filenames, and backend storage prefixes. A source scan confirmed that prior FRAMEFLOW, 影務台, Faapai, and 花牌工房 labels no longer remain in client or server code. The desktop preview displays the Iwantphoto wordmark correctly, while TypeScript checking, production build, and 14 tests passed.
+
+Iwantphoto logo integration verification, 2026-09-16:
+The supplied Iwantphoto design is now displayed in the responsive header as the primary wordmark. Its companion magic-wand icon has been configured as the favicon and Apple touch icon, while the browser theme colour matches the brand blue. Desktop and mobile screenshots confirm that the wordmark remains legible and that the mobile header retains adequate space for the primary action. TypeScript checking, production build, and all 14 Vitest tests passed.
+
+Transparent logo correction verification, 2026-09-16:
+The supplied Iwantphoto wordmark is now delivered as a genuine alpha-masked PNG. A direct composition check against the website background confirmed there is no rectangular backing plate; the blue magic-wand artwork, dark wordmark, tagline, and checkerboard detail remain. The transparent wordmark and matching transparent favicon are active in the header and metadata. Desktop and mobile screenshots confirm a clean result. TypeScript checking, production build, and all 14 Vitest tests passed.
+
+Social promotion verification, 2026-09-16:
+A 2560×1440 Iwantphoto campaign visual has been uploaded as the website's Open Graph and Twitter large-image cover. Metadata now includes canonical, locale, site name, title, description, image URL, dimensions, and accessibility text for https://www.iwantphoto.com/. The promotional headline “一張相，成就更多生意。” appears in the hero and share title; its supporting copy explains the AI background removal, precision cleanup, and fast delivery benefit. The desktop page renders the campaign copy cleanly. TypeScript checking, production build, and all 14 Vitest tests passed.
+
+Open Graph sizing update, 2026-09-16:
+The final Iwantphoto social cover has been rendered at the standard 1200×630 Open Graph ratio and is now referenced by both Open Graph and Twitter metadata. The visual preserves the right-aligned product cutout transformation and spacious left-side composition for platform title copy. TypeScript checking, production build, and all 14 Vitest tests passed after the update.
+
+Before-and-after case-study verification, 2026-09-16:
+The homepage now contains a dedicated “SEE THE DIFFERENCE” section immediately below the image workspace. Two interactive comparison cards show an e-commerce ceramic tea set and a flower-shop storefront: each begins at a 50/50 split, labels both states, and offers a clear blue drag handle. Browser verification shows both cards loading with matched before/after framing, their explanatory copy visible, and the comparison interaction's accessible range input present. The cards display side by side on desktop and stack responsively for mobile. Case images are lazy-loaded to protect initial landing-page performance. TypeScript checking, production build, and all 17 Vitest tests passed.
+
+Expanded case-study verification, 2026-09-17:
+The case-study section now covers four representative business workflows: e-commerce product, storefront promotion, restaurant food photography, and property-listing interiors. Every card retains the interactive comparison control and now has a CTA that applies its matching cleanup or white-background preset. Browser click testing on the property CTA confirmed the preset text is populated in the cleanup field, a confirmation toast is shown, and smooth navigation returns to the page top where the primary upload action is available. A client-case callout now requires written permission before public use of real customer images, branding, or identifiable information. TypeScript checking, production build, and all 21 Vitest tests passed.
+
+Manual preview-switch verification, 2026-09-17:
+The image preview's previously visual-only labels have been replaced with two independent, touch-friendly buttons: 原始 and 已處理. Processing completion defaults to 原始 so that the user actively chooses the result view. The 已處理 button remains visibly disabled before an output exists, preventing an invalid selection. Both controls expose pressed state, keyboard-visible focus rings, and a grouped accessibility label. Preview selection logic has dedicated automated coverage for source default, processed switch, and no-result fallback. TypeScript checking, production build, and all 24 Vitest tests passed.
+
+Editor comparison and zoom verification, 2026-09-17:
+The completed-image workspace now offers an additional「滑動比較」control alongside「原始」and「已處理」. It invokes the existing responsive pointer/touch comparison component, allowing users to drag left and right to inspect exactly what the AI changed. A new top-right expand button opens an accessible modal with an enlarged view of the selected source, output, or the interactive comparison. The comparison action remains unavailable until a processed result exists. TypeScript checking, production build, and all 26 Vitest tests passed.
+
+Original-ratio preservation verification, 2026-09-17:
+The swipe comparison component no longer imposes a 4:3 crop. When its processed image loads, it reads the asset's natural width and height, sets the comparison container to that exact ratio, and constrains only its displayed size. Portrait inputs remain portrait; landscape inputs remain landscape; no image edges are removed to fill the comparison window. The main original and processed preview views already use object-contain. Dedicated tests cover portrait, landscape, invalid-dimension fallback, and size limiting. TypeScript checking, production build, and all 30 Vitest tests passed.
+
+Sequential image processing repair verification, 2026-09-17:
+The processing request now supplies the AI service with a fresh signed storage URL for every source image (and mask when used), rather than relying on a site-relative redirect immediately after upload. This removes the upload/redirect timing path that could affect an image uploaded after the prior entry was removed. Removing the final image also clears stale batch progress, prior failure listings, active processing mode, and brush state; adding an image to an empty workspace performs the same new-session reset. Failures retain their server-provided reason and the exact prior processing mode, allowing a manual「重新嘗試本張」without changing the selected workflow. Regression coverage confirms two consecutive image requests resolve distinct signed sources. TypeScript checking, production build, and all 34 Vitest tests passed.
+
+Manual reprocessing and current-session history verification, 2026-09-17:
+Completed images now include a dedicated「重新處理本張」panel. The operator manually selects one of three workflows—transparent background, white background, or the current cleanup settings—then confirms with the matching action button; selecting a workflow alone does not start processing. Every processing attempt, including single work, batches, retries, reprocessing, and errors, is added to a compact current-session history with filename, workflow, elapsed duration, completion time, status, and an error reason when applicable. History is intentionally cleared only on a new empty workspace to keep it session-scoped. Reprocess workflow and history format/cap behavior have automated coverage. TypeScript checking, production build, and all 39 Vitest tests passed.
+
+Comparison exit control verification, 2026-09-17:
+The slide comparison now includes a clear manual「返回原始相片」button directly below the comparison canvas. It explicitly exits comparison mode and switches the preview to the complete original image. The same action is provided in the enlarged detail dialog, so users have a reliable exit route in both comparison contexts. The pre-existing top「原始」tab remains available as an additional route. TypeScript checking, production build, and all 40 Vitest tests passed.
+
+Processed-preview and single-image progress verification, 2026-09-17:
+When a single-image AI operation completes successfully, the workspace now remains in the「已處理」view rather than returning to the original image. During any single-image background or cleanup operation, the overlay presents a labelled estimated percentage, a visual progress bar, and estimated remaining time. This is explicitly an elapsed-time estimate because the upstream AI operation provides completion-only responses; the indicator is capped at 95% until the result is received, preventing a premature 100% state. Batch progress behavior remains unchanged. TypeScript checking, production build, and all 42 Vitest tests passed.
+
+Original-canvas aspect-ratio correction verification, 2026-09-17:
+The before/after comparison frame now derives its aspect ratio exclusively from the uploaded original image's natural dimensions, rather than from the processed AI output. This ensures portrait, square, and landscape source images retain their original on-screen proportions while comparing. The AI editing instructions for both background removal and cleanup now explicitly require the original input canvas dimensions, aspect ratio, and orientation, and prohibit cropping, rotation, expansion, or reframing. Regression tests cover original-canvas ratio selection and prompt constraints. TypeScript checking, production build, and all 43 Vitest tests passed.
+
+Image alignment preservation and manual correction verification, 2026-09-17:
+The comparison viewport now renders original and processed layers on one shared original-image coordinate canvas rather than using cover-based cropping, eliminating display-induced offset. Both background-removal and cleanup prompts now require pixel-position-preserving edits: retained content must keep its original canvas coordinates, centre point, bounding box, scale, rotation, and perspective. Because a previously generated AI result can still contain a model-introduced positional shift, the comparison view also provides a manual per-image alignment panel. Operators may explicitly move only the processed preview in 1% upward, downward, left, or right increments, or reset the adjustment; the setting is scoped to the selected image and does not change the downloadable file. Use「重新處理本張」for existing outputs generated before the strengthened preservation instructions. TypeScript checking, production build, and all 46 Vitest tests passed.
+
+Expanded comparison fine-tuning verification, 2026-09-17:
+The former compact position pad has been replaced with a direct, manually opened「微調已處理相片位置及大小」panel immediately under the comparison image. It exposes three visible sliders—horizontal position, vertical position, and processed-image scale—with 0.25% increments, current values, safe ±20% positioning bounds, and a 80–120% size range. Five compact quick controls allow 0.25% directional and scale changes, while「重設」returns the selected image to 0%, 0%, and 100%. Adjustments are stored independently per image and synchronised between normal and enlarged comparisons; they do not change the downloadable file. TypeScript checking, production build, and all 48 Vitest tests passed.
+
+Saved alignment preference verification, 2026-09-17:
+The comparison fine-tuning values are now saved as a browser-local Iwantphoto preference. Any X/Y/scale change made in the fine-tuning panel automatically updates the saved default, so all subsequent newly completed images in the same browser and device will start with that alignment. The「設為日後預設」action remains available to explicitly reaffirm the current per-image values.「取消已儲存預設」removes only the future default, not the current image's adjustment. Stored data is limited to the three numeric presentation values and is never uploaded. Automated tests verify preference save, restore, malformed-value safety, and removal. TypeScript checking, production build, and all 51 Vitest tests passed.
+
+Account photo library and login verification, 2026-09-17:
+Iwantphoto now uses the existing secure Manus OAuth flow for customer sign-in. The top navigation presents「登入儲存相片」for anonymous visitors, and「我的相片」plus logout controls after authentication. A new user_images table has been added and migrated successfully, storing lightweight metadata and managed-storage URLs for the original and completed image, with owner ID, processing type, background style, optional cleanup description, and timestamp. On every successful authenticated image operation, the server records the image in the account library and the client invalidates its library query. The protected library endpoint returns records filtered only by ctx.user.id; anonymous reads are rejected. The My Photos dialog shows recent output with operation metadata and supports one-click restoring of original image, result, and processing options to the main workspace. Browser verification confirmed anonymous login prompts and authenticated workspace status. TypeScript checking, production build, and all 54 Vitest tests passed; account persistence and access isolation are covered by router tests.
+
+OAuth application branding investigation, 2026-09-17:
+The user supplied a sign-in screenshot showing the Manus OAuth portal still displaying the legacy name「花牌工房｜Faapai Studio」. The browser session was authenticated successfully and the source project fKSweTMiuq7vmFLmN7Jant was opened. Its Website card at iwantphoto.com still displays the same legacy application title, confirming the outstanding name is stored in Manus website/application metadata rather than the homepage UI. The project card retains Iwantphoto's production domain; only the displayed application title needs correction.
+
+
+OAuth public-title verification, 2026-09-17:
+- The published custom domain `iwantphoto.com` loaded normally with the title `Iwantphoto｜AI 圖片工作台`.
+- The public Manus OAuth sign-in flow for application `GXMdQhWc4xtRF26RLCw4Tc` displayed `Continue to Iwantphoto`.
+- The public application-title setting is `Iwantphoto`; current domains remain `iwantphoto.com`, `www.iwantphoto.com`, and `faapaistd-gxmdqhwc.manus.space`.
+- TypeScript validation, all 55 Vitest tests, and the production build passed after the title update.
+
+Account library and plan interface verification, 2026-09-17:
+- Desktop and mobile previews render the revised secure-login copy without layout overflow.
+- The unauthenticated preview correctly exposes the explicit「登入安全儲存」action and states that completed images are only available again from the account.
+- The page DOM confirms the Starter, Pro and Business plan cards with 50, 250 and 1,000 completed-image monthly allowances.
+- The new backend route and UI use the same plan definitions; Starter is the safe default for all existing accounts.
+
+
+Billing, project organization and usage-alert verification, 2026-09-17:
+- Added account-owned project folders: users can create a project, select it before processing, classify existing library items and filter the library by project or unclassified work.
+- Added account-level usage alerts in the workspace and library; alerts distinguish a general notice, a near-limit warning and an exhausted allowance.
+- Created live Stripe products: Pro at HK$510/month for 200 completed edits and Business at HK$1,770/month for 750 completed edits. Both products use Stripe tax code txcd_10105002 (AIaaS, cloud-based, business use).
+- Configured an active Iwantphoto Customer Portal with billing detail updates, invoices, payment-method updates, plan changes and cancellation at end of billing period.
+- Added server-only Checkout and Portal creation, account entitlement persistence, and a signature-verified Stripe webhook route. A signed local webhook test and a charge-free live Checkout creation followed by immediate expiration completed successfully.
+- Validation: TypeScript check, 78 Vitest tests, and production build passed.
+
+
+Prepaid credit-pack verification, 2026-09-17:
+- Launched three representative Hong Kong packs: Flex 25 (HK$90), Value 100 (HK$320), and Studio 250 (HK$740). Every pack is marked as a non-expiring, one-time purchase and displays its Hong Kong coverage.
+- Stripe products and fixed one-time HKD prices were created live with the same cloud-based AIaaS business-use tax classification as subscriptions. The active webhook endpoint was expanded to receive paid asynchronous Checkout events.
+- Credit grants require a Stripe-signed, paid payment-mode Checkout event, re-fetch the actual Stripe line item, allow-list the price ID, and use the Checkout Session ID as a unique transaction idempotency key. Credits are deducted only after the monthly allowance is exhausted. Failed AI processing automatically refunds the reserved credit.
+- Validation passed: TypeScript check, 83 Vitest tests, production build, live one-time Checkout creation followed by immediate expiration, and public signed-versus-forged webhook verification.
+
+
+Storage capacity and metering verification, 2026-09-17:
+- Account image history is held in managed object storage, not browser memory. The database tracks the user/account relationship, project assignment, metadata and exact original/output byte counts; file bytes reside in managed S3-backed storage.
+- Each signed-in account has a real byte-based usage meter calculated as the sum of its saved original and processed files. The server checks capacity before any new stored edit, reserving space for both files; previews, comparisons, downloads, brush masks, failed uploads and anonymous sessions do not consume account storage.
+- Included storage is now 1 GB (Starter), 10 GB (Pro) and 50 GB (Business). A secured Stripe recurring storage catalog is available: Media Archive 50 GB at HK$50/month, 200 GB at HK$150/month and 1 TB at HK$640/month.
+- Capacity activation is driven only by a verified signed Stripe subscription event. If capacity is insufficient, processing stops before upload/generation; there are no unmetered storage overages.
+- The My Photos interface displays current capacity and provides an explicit, confirmed removal action for stored records. Removing the account-owned record eliminates app access and its metered footprint.
+- Automated validation passed: TypeScript check, 90 Vitest assertions, production build, and a live Stripe subscription Checkout creation smoke test (no payment or subscription activation performed).
+
+
+Automated storage-capacity alert verification, 2026-09-18:
+- After every successful authenticated image save, the server recomputes current account storage bytes and evaluates the 80% and 95% thresholds.
+- Alerts require the account preference to be enabled and a customer email. A unique `(user, threshold, cycle)` reservation is written before any Resend request, preventing duplicate messages from concurrent image processing.
+- Every Resend notification uses a deterministic idempotency key derived from the account, threshold, and alert cycle. A delivery error releases the reservation so a later successful image save can retry.
+- An alert cycle is re-armed only when capacity drops below 75%, which prevents repeat reminders while an account remains above the same limit.
+- The sending-only Resend credential and verified sender `alerts@iwantphoto.com` are securely configured. A non-delivery API authentication check, 105 automated tests, TypeScript validation, and the production build passed.
+
+Storage accounting correction, 2026-09-18:
+All saved account records, including images left in 「未分類」, contribute the combined size of their stored original and processed result to the same account-wide storage total. Earlier records created before byte metering may initially display 0 MB; the library now automatically measures those managed objects when opened and provides a manual recheck action. It does not charge, count, or store browser previews, brush masks, failed edits, downloads, or anonymous sessions.
+
+
+Photo-library per-image capacity controls verification, 2026-09-18:
+- Each saved image now displays its account-metered footprint as the sum of its stored original and processed output bytes.
+- The library remains newest-first by default and offers explicit capacity ordering from largest to smallest or smallest to largest.
+- Bulk removal accepts only selected records that are currently unclassified, asks for confirmation with the estimated quota reduction, and enforces the same user ownership and unclassified constraint again on the server.
+- Type checking, 116 Vitest tests, and the production build all passed.
+
+
+Compact homepage verification, 2026-09-18:
+- Replaced the former long sequence of four full case studies, three industry cards, workflow cards, full pricing tables, credit packs, and storage options with compact progressive-disclosure sections.
+- The homepage now prioritizes the hero and image workspace; it retains one interactive before/after example, concise industry and three-step workflow strips, and compact plans entry points.
+- Additional cases and storage capacity options remain accessible behind native expandable sections, while complete plan selection remains available through the existing account plan dialog.
+- Validation passed: TypeScript check, 37 Vitest files / 117 tests, and production build. Desktop and mobile full-page previews confirm the shorter vertical layout and responsive presentation.
+
+
+Collapsible desktop settings verification, 2026-09-19:
+- Added a manual desktop-only control in the image workspace header. Its default state is expanded; selecting 「收合設定」 hides the right processing panel and changes the workspace to a single full-width preview column. The control changes to 「展開設定」 and restores the original layout on the next explicit click.
+- In the collapsed desktop state, the upload and image preview area receives a larger minimum height; completed-image comparison and preview maximum height increase to 560px. The right panel remains present on mobile because the hiding and control visibility are scoped to the `lg` desktop breakpoint.
+- Validation passed: TypeScript check, 38 Vitest files / 119 tests, production build, and browser verification of the explicit collapse/expand control.
+
+
+Mobile plan-dialog verification, 2026-09-19: The plan dialog is now constrained to the small viewport using `100svh`, with a fixed header and close control. Its plan content is contained in an independent touch-scroll region with safe-area padding, so mobile users can reach Starter, Pro, Business, Flex 25, Value 100, and Studio 250 without the browser toolbar hiding the final options. TypeScript checking, all 39 Vitest files (120 tests), and the production build passed. Browser inspection also verified that all offers are rendered inside the dialog and that the content can scroll to its final item in a constrained-height viewport.
+
+
+Monthly plan comparison verification, 2026-09-19: The plan dialog now includes a single comparison table before the selectable monthly-plan cards. It compares Starter, Pro, and Business by monthly price, monthly processing quota, included photo-library capacity, workflow capability, and appropriate workload. The active plan is marked in the table. On narrow screens, the comparison item column remains fixed while the three plan columns can be horizontally scrolled; browser verification confirmed all five rows and all three headers are present and that the Business column is reachable from a constrained 250px viewport. TypeScript checking, 40 Vitest files (122 tests), and the production build passed.
+
+
+Recommended Pro plan verification, 2026-09-19: Pro is now the single source-of-truth recommended monthly plan. A gold 「推薦」 badge appears in the Pro column of the comparison table, and a more prominent gold 「推薦方案」 label sits above the selectable Pro card without affecting the current-plan indicator. Browser inspection confirmed both labels are rendered on the Pro plan. TypeScript checking, 41 Vitest files (123 tests), and the production build passed.
+
+
+Marketplace image-suite verification, 2026-09-19:
+- Added a dedicated 「建立電商商品套組」 entry point in the homepage hero and image workspace; visual inspection confirmed that it opens a two-column guided dialog on desktop.
+- The dialog exposes five target channels: Amazon 商品頁、Instagram Shop、Shopee、Facebook Shop and Google Merchant Center. Each channel presents a compact four-image delivery plan: catalog main image, studio supporting image, visible detail image and lifestyle candidate.
+- The feature requires a real product photo and factual optional note; it visibly discloses that a four-image suite uses four processing credits and requires manual review of the exact SKU before publication.
+- Authenticated generation is enforced server-side, saves individual results into the selected project/image library as marketplace records, counts outputs toward processing usage, charges prepaid credits only after monthly capacity is exhausted, and reserves storage before work starts.
+- Automated tests and the production build passed after the implementation (42 test files / 126 tests).
+
+
+Google Merchant Center AI metadata verification, 2026-09-19:
+- The Google Merchant Center option remains available in the guided marketplace dialog alongside the four other supported sales channels; desktop inspection confirmed the suite selector remains visually intact after the metadata export changes. Selecting it presents the four-image 1500×1500 suite and explicitly states that outputs are PNG files with embedded Google-required IPTC AI source metadata.
+- Google suite outputs are now fail-closed: each generated asset is retrieved, re-encoded as PNG, receives the IPTC Extension XMP `DigitalSourceType=http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia` property, and is then saved/downloaded as the customer-facing asset.
+- Unit coverage reads the resulting PNG back through Sharp and verifies the embedded XMP value. Router coverage verifies all four Google suite assets use the tagged storage output and are saved with the PNG MIME type. Shared marketplace configuration tests are now included in the normal Vitest discovery set.
+- TypeScript, 49 Vitest files / 145 tests, and production build passed. The remaining merchant obligation is final review of the real SKU, category, feed and Merchant Center diagnostics; users must upload the original download rather than a screenshot or re-saved social copy, which can strip metadata.
+
+
+Reviewed marketplace product-brief verification, 2026-09-19:
+- Reworked the product-suite dialog into a four-stage workflow: select channel, upload a real product photo, receive an AI-drafted editable product brief, and confirm the information before spending the four image credits to generate the suite.
+- The product draft uses the uploaded image as evidence and returns a traditional-Chinese product name, concise description, visible facts, approved supplementary-image callout candidates, cautious use contexts and explicit questions to review. It deliberately refuses to treat unclear dimensions, material, capacity, package count, certification, safety or performance as facts.
+- The first catalog image is still text-free and the prompt now requires every visually verifiable sold item to appear together, while forbidding duplicated product items or invented pack counts. A text-bearing supplementary feature image is permitted only when the merchant supplies exact verified callout wording; otherwise a clean detail image is generated.
+- Desktop browser inspection confirmed the updated responsive dialog presents the revised stages, eight platform/format controls, AI-drafting disclosure, complete-set and verified-feature output cards, and disabled generation until a product photo and confirmed core product data exist. No image generation was triggered during interface inspection.
+- TypeScript, 51 Vitest files / 150 tests, and production build passed. Tests cover the vision-draft JSON parsing, authenticated draft route, confirmation requirement, use of confirmed product data in image prompts, complete-set protection and existing Google IPTC tagging.
+
+
+Configurable marketplace suite verification, 2026-09-19:
+- The marketplace workflow now accepts one primary product image plus up to two alternate angles. All views are used by the vision draft and image generator to reconcile product appearance. Only the primary source is retained with library records; alternate angles are sent as transient generation references and are neither saved nor separately storage-metered.
+- Added a customer-visible image-plan preview. Every card can be selected or deselected before generation, and the credit pill and confirmation button update immediately to the exact selected output count. The server independently uses the selected roles for allowance, prepaid-credit, storage reservation and generation, so a client cannot be billed for an unselected role.
+- Added brand controls for a custom accent colour and typography direction. Prompts apply these only to supplementary studio, feature and lifestyle compositions. The catalog main image explicitly forbids all brand styling, remains white background and text-free, and keeps platform guardrails intact.
+- Desktop browser inspection confirmed the dialog exposes five channels, a three-angle upload control, individual output-plan toggles, live three-credit recalculation after deselecting a card, accent-colour swatches and font-style selector. No AI image generation was triggered during inspection.
+- TypeScript, 51 Vitest files / 153 tests, and production build passed. New router coverage verifies two-angle input, a two-image selected plan, transient base64 reference passing, brand prompt separation and exact output count.
+
+
+Marketplace brand-default verification, 2026-09-19:
+- Added a one-record-per-account `marketplace_brand_preferences` table, with a reviewed Drizzle migration applied successfully. The record stores only the merchant-approved accent colour and allowed typography direction; it has no effect on catalog-main-image restrictions.
+- Authenticated users now load the saved style as the suite dialog opens. The brand panel provides an explicit 「儲存為我的預設」 / 「更新我的預設」 action, so changing a colour for one job does not silently change later jobs. Anonymous visitors see 「登入並儲存預設」 and are directed through the existing login flow.
+- Protected procedures load and upsert preferences strictly by the signed-in account ID. Router coverage verifies account-scoped retrieval plus uppercase colour normalization before saving.
+- Browser inspection confirmed the default-settings message and login-aware save control are present in the responsive suite dialog. TypeScript, 51 Vitest files / 154 tests, and production build passed.
+
+
+Multi-brand marketplace workspace verification, 2026-09-19:
+- Safely evolved the former one-record brand default into account-owned, named brand presets. The reviewed migration preserves an existing style as 「我的品牌」, creates a default flag, adds optional Logo metadata, and adds an optional `brandPresetId` to projects without deleting historical data.
+- Merchants can create and edit multiple presets (the blank form starts with the preferred display name 「SIM uncle」), choose an account default, and assign a specific preset to each project. A selected project takes precedence over the account default; a direct one-off colour/font adjustment remains possible without overwriting a saved preset.
+- Logo files are accepted only as PNG, JPG or WEBP below 2 MB, stored server-side under the signed-in account, and previewed in the brand manager. The image generator receives the approved Logo only for eligible supplementary Amazon/Instagram/Shopee/Facebook images. Catalog main images, and every Google Merchant Center image, explicitly remain Logo-free.
+- Router coverage verifies account-scoped named-preset creation, secure Logo storage, project assignment, supplementary-only Logo references, and one-off style precedence over an account default; shared prompt coverage verifies that the Google Logo restriction is retained. Anonymous browser inspection confirmed the suite remains usable without exposing brand management before login. TypeScript, 51 Vitest files / 158 tests, and production build passed.
+
+
+Product-brief draft reliability verification, 2026-09-19:
+- Reproduced a customer-reported failed product brief using the supplied marketplace screenshot. The vision call reached Gemini successfully, but the previous 900-token ceiling cut the strict JSON response before its closing brace, causing JSON parsing to fail and leaving the editable brief empty.
+- Increased the Gemini output budget to 4096 tokens, which allows for the model's internal reasoning plus the complete structured response. The parser now also accepts a JSON object wrapped in a standard Markdown `json` code fence rather than rejecting it.
+- Re-ran the exact supplied-image reproduction successfully: the service returned a complete editable traditional-Chinese product brief with cautious review questions. The unit test now covers fenced structured output and asserts the safe token budget. TypeScript, 51 Vitest files / 158 tests, and production build passed.
+
+
+Product-brief review experience verification, 2026-09-19:
+- Added a visible analysis state with an elapsed/remaining guidance label, a bounded progress bar, and a clear 20–30 second expectation. It runs from the existing browser progress clock without changing processing-credit or image-generation behaviour.
+- A retry snapshots existing merchant-edited content before requesting a new AI brief. If the request fails, the current editable content is deliberately left intact and the dialog explains that it was preserved; replacing or removing the reference product images intentionally starts a fresh history instead.
+- The dialog retains the latest five AI and pre-retry versions for the open workspace session. Merchants can select a version, compare changed product fields side by side, restore one version, or clear the local session record.
+- Browser inspection confirmed the reworked responsive product-suite dialog opens correctly. New helper coverage verifies immutable bounded history, progress guidance, retained-content detection and field-level comparisons. TypeScript, 52 Vitest files / 161 tests, and production build passed.
+
+
+Marketplace listing copy and export verification, 2026-09-19:
+- Added a protected, platform-aware listing-copy draft route. It uses only the merchant-confirmed product name, description, facts, approved supplementary callouts and use contexts to return a Traditional-Chinese title, exactly five editable bullets, and separate review notes. The prompt rejects unsupported product claims, pack counts, specifications, certifications, pricing and promotional wording.
+- The suite dialog now provides an optional 「AI 上架文案」 stage before image generation. Merchants can edit the title and every bullet, see AI review notes separately, then export the currently confirmed product brief and copy as a UTF-8-BOM CSV or an XLSX workbook. CSV cells are protected against spreadsheet formula injection, and the XLSX library loads only when the merchant chooses Excel export.
+- Draft history entries now have editable names, so a merchant can label the current-session snapshots (for example 「黑色版本」) before comparing or restoring them. New browser inspection confirmed the responsive modal shows the five editable listing fields, CSV/Excel controls, and the revised numbered flow without layout errors.
+- A controlled live gpt-5-mini listing-copy call returned a complete title, five bullets and review notes. TypeScript, 54 Vitest files / 166 tests, and production build passed.
+
+
+Project SKU library and platform-template verification, 2026-09-19:
+- Added the reviewed `marketplace_saved_products` migration and applied it successfully. Each saved record is strictly scoped to one authenticated account and one selected project, and uniquely keyed by the merchant’s SKU. Saving the same project/SKU updates the confirmed product record instead of creating a duplicate.
+- Signed-in merchants can select a project, enter a SKU, save confirmed brief data and current listing copy, then click a saved SKU to restore it. Restoring reuses a listing copy only when it was created for the currently selected marketplace; current product reference photos remain necessary for accurate image generation.
+- Added one-click copy controls for the title and numbered five-point description. Added CSV/XLSX starting templates for Amazon, Shopee, Meta catalog and Google Merchant Center fields. They deliberately exclude unverified category-specific attributes, pricing, stock and image URLs, and the interface requires final mapping against the latest platform/category template.
+- Browser inspection confirmed the anonymous suite keeps the copy and template controls visible but correctly withholds the account/project SKU library until sign-in. Router and helper coverage verifies authenticated project scoping, SKU upsert behaviour, platform-specific Shopee fields and saved-copy platform matching. TypeScript, 55 Vitest files / 169 tests, and production build passed.
+
+
+Merchant-guided product-brief revision verification, 2026-09-19:
+- Added a visible 「不滿意？告訴 AI 要怎樣修改」 field immediately beneath the editable product details. It accepts up to 500 characters, shows example correction requests, explicitly states that it consumes no image-processing credits, and disables the update action until the merchant enters a request.
+- The protected draft route now provides the current working brief, reference photos and revision request to the vision model. The model may follow a writing or correction preference but must not treat the instruction as proof of product claims, dosage, health statements, ingredients, capacity, certification, compatibility, safety or package quantity; unsupported requests remain review questions.
+- Successful revisions are stored in the existing bounded session history for comparison and restoration. A failed revision preserves the editable draft and the merchant’s request. TypeScript, 55 Vitest files / 171 tests, and production build passed. No image suite was generated during browser inspection, so no processing credits were consumed.
+
+
+Product-brief revision shortcuts verification, 2026-09-19:
+- Added one-tap 「更精簡」、「改專業語氣」、「移除醫療字眼」 and 「只保留可見資料」 controls under the merchant revision field. Each control appends its wording without overwriting an in-progress request, returns focus to the editable field, and remains subject to the existing 500-character validation limit.
+- Unit coverage verifies the requested shortcut labels, non-destructive insertion and length bound. TypeScript, 56 Vitest files / 174 tests, and the production build passed.
+
+
+Cross-border product-brief translation shortcuts verification, 2026-09-19:
+- Added 「翻譯成英文」 and 「翻譯成簡體中文」 to the existing merchant revision shortcuts. The instruction requests translation of every editable product-brief field, including product name, description, verified facts, callouts, use contexts and review questions.
+- Updated the conservative product-brief model prompt so Traditional Chinese remains the default, while an explicit English or Simplified Chinese request returns every editable field in that requested language. The evidence, product-truth and review-question restrictions remain unchanged.
+- Focused coverage checks shortcut availability and requested-language prompt behavior. TypeScript, 56 Vitest files / 175 tests, and production build passed.
+
+
+Japan and Southeast Asia product-brief translation shortcuts verification, 2026-09-19:
+- Added 「翻譯成日文」 and 「翻譯成泰文」 to the revision shortcut row, so merchants can prepare the full editable product brief for Japanese and Thai marketplace workflows without manually rewriting every field.
+- The model now honors explicit English, Simplified Chinese, Japanese and Thai requests by returning the product name, description, factual lines, approved callouts, use contexts and review questions in one requested language. The evidence-only and no-invented-claim restrictions remain in force.
+- TypeScript, 56 Vitest files / 175 tests, and production build passed.
+
+
+Lazada Thailand and Shopee Thailand listing workflow verification, 2026-09-20:
+- Added dedicated Lazada Thailand and Shopee Thailand suite channels, each with a Thai-aware listing stage and a platform-specific CSV/XLSX starting template. The Listing Copy service now returns Thai title and five-bullet drafts for either Thailand channel from the merchant-confirmed product brief only.
+- Lazada Thailand exposes a 255-character title counter, 3,000-character description counter, Thai description, leaf category, brand, box contents, variation, category attributes and package weight/dimensions. Shopee Thailand exposes the same core Thai fields except box contents, and uses conservative 120-character title / 3,000-character description working targets because the official Shopee API states actual product limits vary by market and seller type. Both panels direct the merchant to validate the active store’s final leaf-category attributes, brand, variation and logistics requirements in Seller Center.
+- Browser inspection opened the marketplace dialog, confirmed both Thailand platform selectors, then selected Lazada Thailand. The visible panel showed the 0/255 and 0/3000 counters, official-source link, Thai field labels and final Seller Center warning. No image suite or paid processing was submitted. TypeScript, 57 Vitest files / 179 tests, and production build passed.
+
+
+Mobile account-menu verification, 2026-09-20:
+- Replaced the hidden small-screen-only logout gap with a compact, accessible account-menu trigger for signed-in users below the `sm` breakpoint. A green session indicator differentiates the signed-in account trigger from the existing sign-in control.
+- The menu provides My Photos, the current plan plus remaining allowance, and the existing secure logout mutation. Tablet and desktop retain their original inline My Photos, plan, and logout controls.
+- A 375×812 mobile capture confirms the header maintains its compact layout without horizontal overflow. Added mobile-menu helper coverage and re-ran the authentication logout test. TypeScript, 58 Vitest files / 180 tests, and production build passed.
+
+
+Mobile account identity verification, 2026-09-20:
+- The signed-in mobile trigger now shows a compact two-character name initial instead of a generic account icon. The dropdown header repeats the same initials beside the resolved account name, so a user can identify the active account before choosing a menu action.
+- Initials use first and last words for spaced names, the first two Unicode characters for unspaced names, the email local part when no name is supplied, and a safe Chinese account fallback when neither value exists. The trigger’s accessible name includes the resolved account name.
+- Added identity-derivation coverage for spaced, Chinese and fallback names. TypeScript, 58 Vitest files / 181 tests, and production build passed.
+
+
+Mobile account details and profile management verification, 2026-09-20:
+- Applied migration `0012_eager_thor_girl.sql` to add the nullable, account-owned `users.displayName` field. OAuth profile synchronisation deliberately does not overwrite it; the protected `auth.updateProfile` route normalizes and saves only the authenticated user’s 1–80 character display name.
+- The mobile menu now exposes the login email and recorded last sign-in time beside the account initials. Its new 管理帳戶資料 screen lets customers set an Iwantphoto-only display name, inspect email, sign-in method and timestamp, and choose a secure 切換帳戶 action that logs out before starting real-account login. The preferred display name is also used in the saved-photo library.
+- Corrected session handling so `lastSignedIn` is written at OAuth sign-in rather than overwritten on ordinary authenticated requests. Added coverage for profile persistence, name/time formatting, mobile menu items and timestamp stability. A 375×812 capture confirmed the signed-in mobile header remains compact. TypeScript, 60 Vitest files / 185 tests, and production build passed.
+
+
+Account avatar, security activity and administrator overview verification, 2026-09-20:
+- Applied migration `0013_fresh_ultimatum.sql`, adding a nullable account-owned `users.avatarUrl` plus indexed `account_security_events`. Avatars accept only PNG/JPG/WEBP under 2 MB, are decoded server-side, orientation-corrected, ratio-preserved, resized to at most 256 px and stored as WebP in a non-metered account-avatar path. Replaced object keys become unreferenced; customer photo archive accounting is unchanged.
+- Successful OAuth sign-ins, sign-outs, display-name updates and avatar updates produce account-visible activity records. Logging is deliberately best-effort so an activity-store incident cannot block an otherwise valid login or profile change. Customers can inspect their latest 20 records in 管理帳戶資料.
+- Added the role-guarded `/admin` route and `admin.overview` procedure. Only `admin` users can retrieve aggregate user counts, active-account count, image/storage totals, plan distribution, up to 50 recent account summaries and up to 50 security events; standard users receive a server-side `FORBIDDEN` response and a client-side access screen. The UI does not surface customer image contents.
+- Captures confirmed the compact 375×812 signed-in account trigger and the loaded administrator dashboard. Avatar normalization, event labels, owner-only upload, account activity retrieval, admin rejection/approval, TypeScript, 62 Vitest files / 192 tests, and the production build passed.
+
+
+Administrator test-plan visual inspection, 2026-09-20:
+- Loaded the administrator overview after the test-plan panel update. The desktop layout visibly presents the current commercial subscription, effective testing entitlement, distinct Starter/Pro/Business choices, a Stripe/no-charge warning and a restore-commercial-plan action. No plan change was submitted during inspection.
+- A full 375×812 mobile capture confirms the administrator cards stack without horizontal overflow and the test-plan panel presents its warning, entitlement summary, all three plan choices and recovery action in a touch-readable single-column layout.
+
+
+Administrator self-test plan verification, 2026-09-20:
+- Applied migration `0014_yellow_invisible_woman.sql`, which adds nullable `users.adminTestPlan`. The commercial `users.plan` field remains Stripe/webhook-owned and is never updated by the testing control.
+- The server resolves an effective plan only when the current account has `role: admin` and an explicit test override. This effective plan controls that administrator's own processing allowance and storage allowance in standard edits, marketplace suites, account usage and billing display. It never applies to standard users, other administrators, Stripe Checkout, the Customer Portal, subscription status, payment data, storage add-ons or prepaid credits.
+- `admin.setSelfTestPlan` is server-side admin protected, mutates only `ctx.user.id`, records a security activity event, and supports a null reset that restores the commercial plan immediately. Router tests verify self-only changes, standard-user rejection and entitlement isolation. TypeScript, 62 Vitest files / 196 tests, and production build passed.
+
+
+Global test-mode reminder inspection, 2026-09-20:
+- Verified the standard signed-in workspace with no test-plan override retains its original compact header and does not show a false test-mode message. The global banner is conditional on an administrator’s active local test-plan override, while dedicated helper tests cover the visible no-charge copy and standard-user/non-test suppression.
+
+Global test-mode reminder validation, 2026-09-20:
+- Added a global, route-independent amber banner that appears only for an administrator with an active local test plan. It names the effective test plan, states the genuine commercial plan, explicitly confirms that Stripe billing is unaffected, and provides a manual "回復真實方案" action.
+- The manual reset calls the existing server-protected self-only test-plan mutation, refreshes account/usage/billing/admin state, returns the viewport to the top, and preserves a clear error state if restoration fails. Workspace and administrator sticky headers offset below the 48/56 px banner so navigation remains reachable on mobile and desktop.
+- TypeScript, 63 Vitest files / 198 tests, and the production build passed. A signed-in non-test workspace capture confirmed the conditional banner does not appear when no override is active.
+
+
+Marketplace inline project creation verification, 2026-09-20:
+- Added a manual 「新增並選取」 field directly beneath the suite dialog’s project selector. Merchants can enter a normalized 1–60 character project name, create it through the existing authenticated project procedure, and continue with the new project selected for SKU storage and suite outputs without leaving the dialog.
+- The project cache receives the newly created record before refetching, avoiding a blank selector while the background list refreshes. Failed creation retains the typed project name and leaves the existing selected project unchanged.
+- TypeScript, 64 Vitest files / 199 tests, and the production build passed. The inline-project helper covers whitespace normalization and prevents an empty manual submission.
+
+
+Project client metadata validation, 2026-09-20:
+- Added nullable `clientName` (60 characters) and `description` (160 characters) columns to account-owned projects through migration `0015_uneven_ben_parker.sql`; the migration was reviewed and applied without altering existing project records.
+- Both the Marketplace Suite inline project form and My Photos project form now collect an optional customer name and concise internal description. The authenticated project router normalizes whitespace, validates each limit, and persists these fields with the project. An existing project name remains the per-account unique identifier.
+- Client labels appear beside project names in workspace, library, suite and brand-preset selectors. The selected suite project also displays its internal context. These two fields are explicitly account-organization metadata only and are never passed to AI image or listing-copy generation.
+- TypeScript, 64 Vitest files / 199 tests, and the production build passed. Router coverage verifies normalized client/description storage and client helper tests cover display and empty-value handling.
+
+
+Marketplace image-suite reliability validation, 2026-09-20:
+- Investigated the reported all-suite failure. A controlled live probe confirmed that both GPT Image 2 and Gemini 2.5 Flash Image Preview can generate an edited marketplace image from a freshly uploaded, Forge-signed product reference URL; the source storage/signing path is working.
+- Marketplace generation now tries GPT Image 2 first and, only after an upstream failure, retries the exact same product-preserving prompt and signed references once through Gemini. This preserves the confirmed-brief and platform guardrails rather than changing product facts or visual instructions during fallback.
+- If both providers fail, the server records only a safe diagnostic category (for example upstream status, timeout, reference access or content policy) rather than URLs or image data. Customers see a recovery message confirming that incomplete images do not consume prepaid credits and suggesting a clear original product photo if retrying does not help.
+- TypeScript, 65 Vitest files / 203 tests, and the production build passed. Unit coverage verifies primary success, Gemini fallback, safe two-provider failure feedback, and suite-level no-charge recovery handling.
+
+Marketplace recovery workflow visual baseline, 2026-09-20:
+- Opened the anonymous Marketplace Suite dialog in the development preview after adding the recovery workflow. The seven platform cards, product-reference upload control, editable workflow sections and selected output plan remain visible without horizontal overflow at the desktop preview size.
+- The reference-quality panel intentionally appears only after a product reference is selected; generation/retry actions remain protected by account sign-in and confirmed product data.
+
+Marketplace reference quality, progress and retry validation, 2026-09-20:
+- Added client-side, advisory reference readiness checks after upload. They report image dimensions and flag only low resolution, small/compressed files, extreme aspect ratios, low center/background contrast, or visually varied borders; they neither modify the photo nor block a merchant from proceeding.
+- Suite generation now shows the planned current output role, elapsed time, and a deliberately conservative remaining-time estimate. The estimate is time-based because upstream image providers return completion-only responses.
+- A partial suite failure now preserves successful outputs. The result area provides a role-specific retry control; the retry accepts one role only and reuses an account-owned marketplace original through a fresh signed URL. Router coverage verifies the original is not uploaded or metered a second time.
+- Anonymous development-preview inspection confirmed the expanded seven-channel suite dialog remains rendered without horizontal overflow before upload. The hidden file-input automation did not expose the input to the sandbox browser, so upload-card assessment behavior is covered by deterministic helper tests instead.
+- `pnpm check && pnpm test && pnpm build` passed: 67 Vitest files and 210 tests passed; the production client and server bundles completed successfully.
+
+
+Differentiated marketplace image-role validation, 2026-09-20:
+- Investigated the supplied completed-suite captures: the original catalog-main, studio, detail and lifestyle outputs had all been rendered as near-identical front-facing white-background product photos. The prior prompt's blanket source-photo preservation language overpowered the more general role descriptions.
+- Reworked the prompts into explicit role contracts. Catalog main remains the sole pure-white treatment; studio now requires a non-white three-quarter/side camera setup; detail requires a tight crop of a visible label, cap, material, texture or construction feature; lifestyle requires a non-white, confirmed-context ownership/use scene with environmental depth.
+- Added a server-side supplementary-image quality gate. It downloads the generated asset through a short-lived signed URL, measures near-white composition and a low-resolution luminance signature, then regenerates a weak or duplicate supplementary role once with a targeted role correction. The automatic corrective pass is part of the same requested output and never spends another customer processing credit. If the second attempt still looks weak, the output card explains the concern and exposes a role-only composition retry.
+- Added deterministic coverage for role prompt separation, near-white lifestyle rejection, valid environmental scene acceptance, duplicate detection, signed inspection URLs and the no-extra-credit automatic correction flow. `pnpm check && pnpm test && pnpm build` passed: 68 Vitest files and 216 tests passed, with production client and server bundles completing successfully.
+
+
+Lifestyle scene style selector validation, 2026-09-20:
+- Added a conditional 「情境風格」 selector beneath the selected image-plan cards. It appears only while 「使用情境圖」 is selected and offers automatic selection, 家居, 辦公室 and 戶外. The inline guidance explicitly explains that it affects only the lifestyle image and remains constrained by confirmed product use.
+- The authenticated suite endpoint validates the selected style and passes it to both the original lifestyle generation and any automatic composition-correction retry. Main, studio and detail prompts deliberately ignore the option.
+- Shared prompt coverage verifies the available options, rejects an unsupported value, applies the office direction only to lifestyle output, and router coverage verifies a home selection reaches the image generator. Browser inspection confirmed the selector and all four choices render in the Marketplace Suite dialog.
+- `pnpm check && pnpm test && pnpm build` passed: 68 Vitest files / 217 tests passed; production client and server bundles completed successfully.
+
+
+Per-image redesign and workflow-template validation, 2026-09-20:
+- Added migration `0016_heavy_silver_centurion.sql`, reviewed and applied successfully, creating an account-owned `marketplace_workflows` table. A workflow stores only reusable platform, selected-role, lifestyle, project and brand-presentation settings; it intentionally excludes source photos, SKU, product facts, listing text and generated image URLs.
+- Signed-in users can save a named workflow, apply it on a later suite, or delete it. The server verifies that any referenced project and brand preset belong to the current account. Applying a template with a removed project or preset safely retains remaining settings and asks the merchant to choose a replacement.
+- Every saved suite-output card now accepts an individual redesign instruction and regenerates only that role from its account-owned source. The one-image request is clearly labelled as consuming one image credit and the prompt treats the instruction as guarded art direction, never as evidence for product facts, claims, labels, accessories or SKU changes.
+- Router tests cover account-owned workflow create/list/remove operations and instruction-carrying single-role regeneration; shared tests cover workflow normalization and prompt safeguards. `pnpm check && pnpm test && pnpm build` passed: 69 Vitest files / 223 tests passed, with production client and server bundles completing successfully.
+
+
+Immutable processing-quota validation, 2026-09-20:
+- Corrected the monthly-quota source of truth. Previously the server counted current `user_images` records, so deleting a saved record incorrectly made a completed processing unit appear unused. It now counts append-only `processing_usage_events` rows recorded only after a standard edit or marketplace output successfully completes.
+- Added migration `0017_slimy_squadron_supreme.sql`, reviewed and applied successfully. Existing current-month saved output records were backfilled idempotently into the ledger. A one-unit idempotent repair was applied to the reported account (`manhey@gmail.com`) for the observed legacy deleted output, restoring the expected consumed allowance without changing storage or prepaid-credit balance.
+- Photo deletion continues to remove the account-owned library record and release its metered storage footprint, but it never deletes a processing-usage event. The My Photos monthly-allowance panel now states this distinction explicitly.
+- Router coverage verifies standard edit and four-image suite ledger entries, plan usage derived from the ledger, and that deleting an image leaves the used/remaining monthly allowance unchanged. `pnpm check && pnpm test && pnpm build` passed: 69 Vitest files / 224 tests passed, with production client and server bundles completing successfully.
+
+
+Monthly processing timeline validation, 2026-09-20:
+- Added an authenticated `library.usageTimeline` query backed by the append-only `processing_usage_events` ledger. It returns only the signed-in account's successful events since the current month began, ordered newest first and limited to the latest 80 entries.
+- My Photos now displays a bounded, scrollable 「本月處理時間線」 directly below the monthly allowance. Each row shows a human-readable operation label, local timestamp and processing units, including the four marketplace image roles and legacy migrated records. The panel explicitly explains that deleting an archived photo frees storage but does not erase processing usage.
+- Router coverage verifies ownership-scoped timeline access; display-helper tests cover standard, marketplace, legacy repair and unknown sources. `pnpm check && pnpm test && pnpm build` passed: 70 Vitest files / 228 tests passed, with production client and server bundles completing successfully.
+
+
+Marketplace suite storage URL recovery verification, 2026-09-20:
+- Reproduced the managed-storage preparation chain with a generated tiny image: upload returned a managed `/manus-storage/...` path, the key parsed correctly, signing returned a CloudFront URL, and a byte-range fetch returned HTTP 206. The temporary probe was removed immediately after diagnosis.
+- Hardened managed-storage URL parsing against malformed paths, malformed encoding and an invalid deployment app-base setting. Relative managed paths now resolve through a canonical safe origin rather than propagating a WHATWG URL parser exception; external and traversal-like paths remain rejected.
+- The Marketplace suite now wraps source upload/sign preparation before its role loop. If that preparation fails, it returns 「產品參考相片暫時未能準備，請重新上載後再試；未有生成圖片不會扣除額度。」 No image generation, processing usage entry, prepaid-credit debit or refund is attempted on that path. The client also translates any unexpected residual URL-pattern error into the same actionable no-charge guidance.
+- Image-service and Google Merchant export URL construction now yield controlled service-recovery errors instead of raw parser text. Google outputs retain fail-closed AI metadata behavior.
+- Regression coverage verifies malformed/external storage values, malformed app-base fallback, no-charge source-preparation failure, Google export invalid-base recovery and the client fallback. TypeScript checking, 70 Vitest files / 233 tests, production build, and whitespace diff checking all passed.
+
+
+Final marketplace-role reliability verification, 2026-09-20:
+- Database inspection confirmed the reported pattern without reading customer image content: a recent Amazon source completed main, studio and detail only, while a separate repeat completed main, studio, detail and lifestyle. Processing usage records match only successful outputs.
+- The server previously signed the primary product reference once before entering the sequential role loop. A four-image suite can run long enough for that short-lived reference URL to expire before lifestyle processing.
+- The suite now retains only the managed storage key during setup and obtains a fresh signed product URL immediately before every role generation and any automated composition correction. Eligible brand-logo references follow the same renewal pattern. This isolates a late-role signing failure, preserves earlier results and retains the existing no-charge handling for an incomplete role.
+- Regression coverage confirms four selected roles receive four distinct fresh source signatures. TypeScript checking, 70 Vitest files / 234 tests, production build and diff validation passed.
+
+
+Progressive Marketplace Suite completion verification, 2026-09-20:
+- The customer's new live-domain mobile recording showed the exact visible defect: while displaying 「使用情境圖（4/4）」, estimated progress reached 96% and then jumped backwards to 76%, with remaining time increasing from about 3 seconds to about 19 seconds. No explicit processing error appeared in the recording.
+- Read-only database inspection confirmed that this recorded run actually saved all four Amazon outputs between 22:39:32 and 22:41:46 Hong Kong time, including the lifestyle result, with matching success-ledger events. The UI had been waiting for one long four-image response and kept the completed result section below the current viewport.
+- Replaced the single multi-minute browser request with one bounded request per selected role. Every completed image is merged into the visible result set immediately; later roles reuse the account-owned source, and a failed role is recorded while remaining selected roles continue. This reduces mobile gateway/request-timeout exposure without changing per-output credit or storage accounting.
+- Reworked estimated progress to use actual completed request count plus monotonic within-role time. It never loops backwards, labels role/count and timing as estimates, changes to a long-running-service message after the estimate, and scrolls the dialog to newly completed results.
+- Focused workflow tests and TypeScript validation passed, followed by the complete TypeScript check, 70 Vitest files / 237 tests, production build and diff validation.
+
+
+Marketplace WhatsApp delivery verification, 2026-09-20:
+- Added a WhatsApp action beside Download on every completed Marketplace Suite result card. The action fetches the completed image as a file and invokes the device-native share sheet, allowing iPhone and compatible Android users to select WhatsApp and transmit the image file itself rather than only a link.
+- Sharing has an in-button preparation state and prevents duplicate requests. If a browser cannot share image files, it downloads the identical file and gives a clear instruction to select it in WhatsApp; share-sheet cancellation stays silent.
+- Extended image-sharing coverage for unsupported file-share fallback. Full validation passed: TypeScript check, 70 Vitest files / 238 tests, production build and whitespace diff check.
+
+
+Marketplace bulk WhatsApp sharing verification, 2026-09-20:
+- Added 「WhatsApp 分享全部」 beside the Marketplace Suite Download All control whenever at least two outputs have completed. It downloads the available suite outputs into an actual file set, invokes one native share sheet, and lets the merchant choose WhatsApp to send the images together.
+- The control uses a preparation state, prevents concurrent per-image/bulk shares, handles intentional share-sheet cancellation silently, and falls back to ordered downloads plus clear WhatsApp instructions when the browser cannot share multiple files.
+- Added regression coverage for a four-file native image share payload. Full validation passed: TypeScript check, 70 Vitest files / 239 tests, production build and whitespace diff check.
+
+
+Outdoor lifestyle scene reliability verification, 2026-09-21:
+- The supplied mobile screenshots showed an Outdoor selection followed by a 「使用情境圖」 that still visually resembled a white-background product image. Read-only metadata inspection identified the two newest lifestyle outputs; no customer source photos were accessed.
+- The current composition checker measured those outputs at approximately 67% and 75% near-white pixels. They were previously accepted because the lifestyle threshold was 84%; under the hardened 60% threshold and outer-edge check, both now correctly request a no-extra-credit composition correction.
+- Outdoor prompts now require a literal outdoor natural-daylight scene, a plausible outdoor surface and at least two visible outdoor environmental cues. They explicitly reject near-window, indoor, seamless and isolated-product treatments. The automatic correction receives the same Outdoor instruction, preserving product-truth restrictions.
+- Added regressions for light-neutral product backdrops, Outdoor correction wording and router propagation of the selected style. Full validation passed: TypeScript check, 70 Vitest files / 240 tests, production build and whitespace diff check.
+
+
+Full lifestyle scene audit verification, 2026-09-21:
+- Reviewed every selectable lifestyle style. The previous Home, Office and Automatic prompts were less explicit than Outdoor and the quality gate measured only white/duplicate composition, so it could not reliably detect a non-white studio image or a scene belonging to the wrong selected setting.
+- Strengthened the contracts: Home requires recognisable domestic context, Office requires recognisable workplace context, Automatic requires a visibly readable real-world non-studio setting, and all reject seamless, neutral-display and isolated-product treatments. Each contract carries into a style-specific automatic correction prompt.
+- Added a lightweight server-side visual quality check for the one lifestyle asset in a suite. It assesses visible composition only—recognisable scene, selected-style match, and studio/isolated treatment—using a downsized image preview. A semantic failure triggers the existing no-extra-credit correction; check-provider failures safely leave the otherwise valid completion untouched.
+- A controlled check of the reported latest white-background output classified it as an isolated studio image rather than a genuine outdoor scene, confirming the semantic evaluator catches the observed failure type. Full validation passed: TypeScript check, 70 Vitest files / 244 tests, production build and whitespace diff check.
+
+
+AI scene recommendation from product uploads verification, 2026-09-21:
+- Extended the existing one-pass product-photo analysis to return a separate scene recommendation and short Traditional-Chinese composition reason. It selects Home, Office, Outdoor or the conservative Automatic option only from visible product evidence and merchant-confirmed use contexts; it does not create a factual product claim.
+- New uploads automatically adopt the recommendation, show it in the Lifestyle panel and retain a one-tap apply action. A manual selection or saved workflow remains authoritative, and a refreshed recommendation remains visible without silently overriding that merchant choice.
+- Invalid or ambiguous model scene values safely fall back to Automatic. The recommendation is kept outside the confirmed product brief so it is neither saved as SKU data nor included in product-generation facts.
+- Confirmed the current live model catalog contains Gemini 3 Flash Preview. Full validation passed: TypeScript check, 71 Vitest files / 248 tests, production build and whitespace diff check.
+
+
+Advanced AI scene choices and exclusions verification, 2026-09-21:
+- The product-photo drafting response now produces two or three conservative scene subtypes, a primary style, and—only where justified by visible context—recommended Home, Office or Outdoor categories to avoid. Candidate titles, descriptions and reasons are Traditional-Chinese workspace guidance and cannot be used as product facts.
+- The mobile Marketplace dialog presents selectable candidate cards, keeps a recommended first choice for a new upload, and lets the merchant explicitly avoid inappropriate broad environment categories. A manual selection remains authoritative, cannot be simultaneously prohibited, and is visibly distinct from an AI suggestion.
+- The selected candidate and final exclusion list are included only on the Lifestyle image request as non-sold-environment art direction. The server drops contradictory candidate/style pairs, removes duplicate exclusions and excludes the active category, preventing a tampered client request from creating conflicting direction. The existing composition correction retry receives the same selected guidance.
+- Confirmed the live model catalog includes Gemini 3 Flash Preview. Focused scene tests passed, followed by TypeScript, 71 Vitest files / 250 tests, production build and whitespace diff check.
+
+
+Streamlined Marketplace workspace verification, 2026-09-21:
+The Marketplace Product Image Suite no longer opens as a constrained, text-heavy mobile dialog. It uses a full-screen, sticky-header workspace on phones and retains a centred wide workspace on larger screens. The header makes the three essential stages—upload, review and create—visible without introducing a separate settings page.
+
+The first view deliberately prioritises platform, up to three product reference photos and the AI product check. Mobile platform selection is compact; the four image-plan choices use concise two-column cards. Workflow, brand, project, SKU, detailed product editing, listing copy and exports are preserved under clearly labelled native disclosures, so nothing is removed but the default path no longer asks the merchant to make every choice before starting. The scene avoidance controls and brand styling also remain optional disclosures.
+
+A browser check confirmed the local suite opens as the new focused workspace and reaches the image-plan controls without authentication. Added workspace-stage behavior coverage; TypeScript, 72 Vitest files / 252 tests, production build and diff validation all passed.
+
+
+Verified product specification overlay verification, 2026-09-22:
+
+The Marketplace product brief now has two separate editable fields for **product weight** and **product dimensions**. The vision-draft schema asks for exact values only when a value and unit are visibly unambiguous in the supplied references or already merchant-provided text; it explicitly forbids estimating from pixels, category assumptions or comparison objects. Unknown values remain blank and prompt a merchant confirmation question. The fields remain distinct from the Thailand shipping/package logistics fields.
+
+The confirmed values are persisted in the `marketplace_saved_products` SKU record through reviewed migration `0018_funny_emma_frost.sql`, which was applied successfully with safe empty defaults for existing saved products. They are also retained in draft history and included in CSV/XLSX product-data exports.
+
+Only the role-three `detail`/「核實賣點圖」 prompt receives the exact Traditional-Chinese specification-overlay instruction. It is restricted to the merchant-confirmed text and forbids translation, rounding, extra values, claims, capacity, package contents or unrelated labels. Main, studio and lifestyle roles explicitly prohibit specification overlays. Focused prompt, router, draft, history and export tests passed, followed by TypeScript, **72 Vitest files / 254 tests**, production build and whitespace-diff validation. A local workspace browser check confirmed the retained staged workflow and third detail-image card; no paid image generation was invoked.
+
+
+Structured specification image workflow verification, 2026-09-22:
+
+The Marketplace brief now provides structured **length × width × height** inputs with an explicit **mm, cm, m or in** unit picker. A completed set is normalised to the existing `12 × 8 × 4 cm` format, preserving previously saved SKU data and avoiding a second incompatible dimensions model. Legacy free-form values remain visible until the merchant deliberately re-enters the structured values.
+
+When weight and/or dimensions are confirmed and the third 「核實賣點圖」 is selected, the workspace presents four compact visual layout directions: Automatic, Side information card, Dimension guide and Bottom specification strip. The server validates the choice and sends it only to that third detail-image prompt, including automatic composition corrections and one-role redesigns. Catalog main, studio and lifestyle images remain specification-overlay-free.
+
+Each completed detail output now retains the exact approved lines sent to the model and shows a visible 「規格文字校對」 reminder. The merchant must compare the numbers, units, L × W × H order and Chinese text before publishing; a local check-off records that review for the current output, while a regenerated output requires a new check. No paid image generation was triggered during verification. Focused tests passed, followed by TypeScript, **73 Vitest files / 258 tests**, production build and whitespace-diff validation.

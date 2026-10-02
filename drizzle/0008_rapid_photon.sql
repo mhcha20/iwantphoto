@@ -1,0 +1,1 @@
+ALTER TABLE `user_images` MODIFY COLUMN `mode` enum('background','cleanup','marketplace') NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `adminTestPlan` enum('starter','pro','business');

@@ -1,0 +1,10 @@
+2026-09-21 focused marketplace workspace browser check:
+- Opened the local preview and launched the Marketplace Product Image Suite without signing in.
+- The new workspace header rendered with the concise title, three-step progress chips, and a full-screen workspace treatment rather than the former constrained card-sized modal.
+- The initial quick-create flow exposes platform and product-photo selection first. Optional account settings are absent for an anonymous session; product confirmation remains unavailable until a reference image is supplied.
+- Browser inspection confirmed the optional listing and brand controls are present as disclosure sections, while the core image-plan cards remain reachable in the same workspace.
+
+2026-09-22 product specification workspace browser check:
+- Opened the local Marketplace Product Image Suite workspace after the streamlined full-screen redesign.
+- The staged workspace, platform picker, product-reference upload prompt, optional listing-copy disclosure, image-plan cards and third 「核實賣點圖」 role remained visible and coherent at the local preview.
+- The guest preview cannot populate a confirmed product brief or render the guarded weight/dimensions inputs without uploading account-owned reference photos; integration and prompt behavior are covered by focused tests.

@@ -1,0 +1,2 @@
+ALTER TABLE `marketplace_saved_products` ADD `weight` varchar(80) DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE `marketplace_saved_products` ADD `dimensions` varchar(80) DEFAULT '' NOT NULL;

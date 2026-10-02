@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ generateImage: vi.fn() }));
 vi.mock("./_core/imageGeneration", () => ({ generateImage: mocks.generateImage }));
 
+import { ENV } from "./_core/env";
 import { generateMarketplaceImage, getMarketplaceImageGenerationDiagnostic, getMarketplaceImageRecoveryMessage, MarketplaceImageGenerationError } from "./marketplaceImageGeneration";
 
 describe("marketplace image generation resilience", () => {
@@ -12,20 +13,20 @@ describe("marketplace image generation resilience", () => {
     vi.clearAllMocks();
   });
 
-  it("uses GPT Image 2 when the primary model succeeds", async () => {
+  it("uses the primary OpenRouter image model when the primary model succeeds", async () => {
     mocks.generateImage.mockResolvedValueOnce({ url: "/manus-storage/generated/primary.png", byteSize: 123 });
 
-    await expect(generateMarketplaceImage(request)).resolves.toMatchObject({ url: "/manus-storage/generated/primary.png", model: "MODEL_GPT_IMAGE_2", usedFallback: false });
-    expect(mocks.generateImage).toHaveBeenCalledWith(expect.objectContaining({ model: "MODEL_GPT_IMAGE_2", quality: "medium" }));
+    await expect(generateMarketplaceImage(request)).resolves.toMatchObject({ url: "/manus-storage/generated/primary.png", model: ENV.openRouterImageModel, usedFallback: false });
+    expect(mocks.generateImage).toHaveBeenCalledWith(expect.objectContaining({ model: ENV.openRouterImageModel }));
   });
 
   it("retries the same reference with the fallback model after a primary failure", async () => {
     mocks.generateImage.mockRejectedValueOnce(new Error("Image generation request failed (503 Service Unavailable)"));
     mocks.generateImage.mockResolvedValueOnce({ url: "/manus-storage/generated/fallback.png", byteSize: 456 });
 
-    await expect(generateMarketplaceImage(request)).resolves.toMatchObject({ url: "/manus-storage/generated/fallback.png", model: "MODEL_GEMINI_2_5_FLASH_IMAGE_PREVIEW", usedFallback: true });
+    await expect(generateMarketplaceImage(request)).resolves.toMatchObject({ url: "/manus-storage/generated/fallback.png", model: ENV.openRouterImageFallbackModel, usedFallback: true });
     expect(mocks.generateImage).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      model: "MODEL_GEMINI_2_5_FLASH_IMAGE_PREVIEW",
+      model: ENV.openRouterImageFallbackModel,
       originalImages: request.originalImages,
     }));
   });

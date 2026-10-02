@@ -11,7 +11,7 @@ export const users = mysqlTable("users", {
    * Use this for relations between tables.
    */
   id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
+  /** Account identifier: `google:<sub>` for Google sign-in (legacy rows hold the old Manus openId until first Google login). Unique per user. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   /** Account-controlled name shown in the Iwantphoto workspace; OAuth updates never overwrite it. */

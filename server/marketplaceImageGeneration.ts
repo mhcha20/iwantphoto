@@ -1,7 +1,9 @@
 import { generateImage, type GenerateImageOptions, type GenerateImageResponse } from "./_core/imageGeneration";
 
-const PRIMARY_MODEL = "MODEL_GPT_IMAGE_2";
-const FALLBACK_MODEL = "MODEL_GEMINI_2_5_FLASH_IMAGE_PREVIEW";
+import { ENV } from "./_core/env";
+
+const getPrimaryModel = () => ENV.openRouterImageModel;
+const getFallbackModel = () => ENV.openRouterImageFallbackModel;
 
 export class MarketplaceImageGenerationError extends Error {
   constructor(
@@ -29,21 +31,23 @@ function asSafeDiagnostic(error: unknown) {
 }
 
 /**
- * Generates a marketplace asset with GPT Image 2, then retries once with Gemini
+ * Generates a marketplace asset with the primary OpenRouter image model, then retries once with the fallback model
  * only when the first provider fails. Callers keep all input references unchanged
  * so product truth and marketplace prompt guardrails stay identical.
  */
 export async function generateMarketplaceImage(options: Omit<GenerateImageOptions, "model" | "quality">) {
+  const primaryModel = getPrimaryModel();
+  const fallbackModel = getFallbackModel();
   try {
-    const image = ensureImageUrl(await generateImage({ ...options, model: PRIMARY_MODEL, quality: "medium" }), PRIMARY_MODEL);
-    return { ...image, model: PRIMARY_MODEL, usedFallback: false as const };
+    const image = ensureImageUrl(await generateImage({ ...options, model: primaryModel }), primaryModel);
+    return { ...image, model: primaryModel, usedFallback: false as const };
   } catch (primaryError) {
     console.warn("[iwantphoto marketplace] primary image model failed; trying fallback", {
       diagnostic: asSafeDiagnostic(primaryError),
     });
     try {
-      const image = ensureImageUrl(await generateImage({ ...options, model: FALLBACK_MODEL }), FALLBACK_MODEL);
-      return { ...image, model: FALLBACK_MODEL, usedFallback: true as const };
+      const image = ensureImageUrl(await generateImage({ ...options, model: fallbackModel }), fallbackModel);
+      return { ...image, model: fallbackModel, usedFallback: true as const };
     } catch (fallbackError) {
       throw new MarketplaceImageGenerationError(primaryError, fallbackError);
     }

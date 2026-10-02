@@ -19,4 +19,8 @@ pnpm run build
 NODE_ENV=production pnpm start
 ```
 
-The current code uses Manus OAuth, Manus Forge Storage and Manus Forge AI. A generic host requires those integrations to remain securely configured or to be replaced as detailed in the migration guide.
+Manus has been replaced: sign-in uses **Google OAuth**, files use an **S3-compatible bucket**, and AI image editing / LLM calls go through **OpenRouter**. See `HOST-ENVIRONMENT.template` for the variables.
+
+- Google redirect URI: `https://<your-domain>/api/oauth/callback`.
+- Existing accounts: on first Google login, a pre-migration account is claimed only when exactly one row has the same Google-verified email (`openId` becomes `google:<sub>`). Ambiguous matches create a new account instead.
+- Stored media URLs stay `/manus-storage/<key>`; upload `backup/media/manus-storage/` and `backup/public-assets` (brand images) to the bucket root with the same keys.

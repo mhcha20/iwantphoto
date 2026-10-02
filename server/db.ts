@@ -82,6 +82,46 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 }
 
+export const GOOGLE_OPEN_ID_PREFIX = "google:";
+
+/**
+ * Resolves the account for a Google sign-in. `profile.email` MUST already be
+ * verified by Google (`email_verified`). A first Google login claims an existing
+ * pre-migration account only when exactly one such account has that email;
+ * anything ambiguous creates a separate account rather than merging by guess.
+ */
+export async function findOrCreateGoogleUser(profile: { sub: string; email: string; name?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const openId = `${GOOGLE_OPEN_ID_PREFIX}${profile.sub}`;
+  const email = profile.email.trim().toLowerCase();
+  const isOwner = Boolean(ENV.ownerEmail) && email === ENV.ownerEmail;
+
+  const existing = await getUserByOpenId(openId);
+  if (!existing) {
+    const legacy = await db
+      .select()
+      .from(users)
+      .where(sql`lower(${users.email}) = ${email} and ${users.openId} not like ${GOOGLE_OPEN_ID_PREFIX + "%"}`)
+      .limit(2);
+    if (legacy.length === 1) {
+      await db.update(users).set({ openId, loginMethod: "google" }).where(eq(users.id, legacy[0].id));
+    }
+  }
+
+  await upsertUser({
+    openId,
+    name: profile.name ?? null,
+    email,
+    loginMethod: "google",
+    lastSignedIn: new Date(),
+    ...(isOwner ? { role: "admin" as const } : {}),
+  });
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new Error("Failed to load account after Google sign-in");
+  return user;
+}
+
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
   if (!db) {

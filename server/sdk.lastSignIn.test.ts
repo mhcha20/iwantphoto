@@ -12,7 +12,10 @@ vi.mock("./db", () => ({
   upsertUser: mocks.upsertUser,
 }));
 
+import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
+
+ENV.cookieSecret = "test-session-secret-at-least-32-bytes-long";
 
 describe("SDK authenticated account lookup", () => {
   it("does not overwrite OAuth-recorded lastSignedIn on ordinary requests", async () => {
@@ -23,7 +26,7 @@ describe("SDK authenticated account lookup", () => {
       name: "Account owner",
       displayName: "工作台名稱",
       email: "owner@example.com",
-      loginMethod: "manus",
+      loginMethod: "google",
       role: "user",
       createdAt: recordedSignIn,
       updatedAt: recordedSignIn,

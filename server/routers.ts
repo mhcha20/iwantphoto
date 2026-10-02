@@ -777,8 +777,6 @@ export const appRouter = router({
               { url: sourceUrl, mimeType },
               ...(maskUrl ? [{ url: maskUrl, mimeType: "image/png" }] : []),
             ],
-            model: "MODEL_GPT_IMAGE_2",
-            quality: "medium",
           });
           if (!url) throw new Error("AI image service returned no image URL");
           if (ctx.user) await recordProcessingUsage({ userId: ctx.user.id, source: `editor_${input.mode}` });

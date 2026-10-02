@@ -10,6 +10,7 @@
  * Reference images are fetched server-side and sent as data URLs so the result
  * does not depend on the upstream provider being able to reach our storage.
  */
+import { fitToReferenceCanvas, keyColorToAlpha, nearestSupportedAspectRatio, readImageSize, type KeyColor } from "../imagePostProcess";
 import { storagePut } from "../storage";
 import { ENV } from "./env";
 
@@ -27,6 +28,16 @@ export type GenerateImageOptions = {
   model?: string;
   /** Kept for call-site compatibility; OpenRouter image models choose their own quality. */
   quality?: string;
+  /**
+   * Edit-in-place mode: ask for the first reference's aspect ratio and, after generation,
+   * crop/scale the result back to that canvas (never enlarging past the model output).
+   */
+  matchReferenceCanvas?: boolean;
+  /**
+   * The prompt asked for a flat key-colour background; convert it to real transparency.
+   * Throws when the result does not have a usable key background.
+   */
+  keyColor?: KeyColor;
 };
 
 export type GenerateImageResponse = {
@@ -35,14 +46,22 @@ export type GenerateImageResponse = {
   mimeType?: string;
 };
 
-async function toDataUrl(image: NonNullable<GenerateImageOptions["originalImages"]>[number]): Promise<string> {
-  if (image.b64Json) return `data:${image.mimeType ?? "image/png"};base64,${image.b64Json}`;
+type ReferenceImage = NonNullable<GenerateImageOptions["originalImages"]>[number];
+
+async function loadReference(image: ReferenceImage): Promise<{ dataUrl: string; bytes?: Buffer }> {
+  if (image.b64Json) {
+    return { dataUrl: `data:${image.mimeType ?? "image/png"};base64,${image.b64Json}`, bytes: Buffer.from(image.b64Json, "base64") };
+  }
   if (!image.url) throw new Error("Reference image has no url or data");
-  if (image.url.startsWith("data:")) return image.url;
+  if (image.url.startsWith("data:")) {
+    const encoded = image.url.match(/^data:[^,]*;base64,([\s\S]+)$/)?.[1];
+    return { dataUrl: image.url, bytes: encoded ? Buffer.from(encoded, "base64") : undefined };
+  }
   const response = await fetch(image.url, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`Reference image fetch failed (${response.status}) via signed url`);
   const mime = image.mimeType ?? response.headers.get("content-type") ?? "image/png";
-  return `data:${mime};base64,${Buffer.from(await response.arrayBuffer()).toString("base64")}`;
+  const bytes = Buffer.from(await response.arrayBuffer());
+  return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}`, bytes };
 }
 
 type OpenRouterImageResponse = {
@@ -60,12 +79,15 @@ function parseDataUrl(value: string): { buffer: Buffer; mimeType: string } {
   return { mimeType: match[1], buffer: Buffer.from(match[2], "base64") };
 }
 
-export async function generateImage(options: GenerateImageOptions): Promise<GenerateImageResponse> {
+export class TransparentCutoutError extends Error {}
+
+async function generateImageOnce(options: GenerateImageOptions): Promise<GenerateImageResponse> {
   if (!ENV.openRouterApiKey) {
     throw new Error("OPENROUTER_API_KEY is not configured");
   }
   const model = options.model ?? ENV.openRouterImageModel;
-  const references = await Promise.all((options.originalImages ?? []).map(toDataUrl));
+  const references = await Promise.all((options.originalImages ?? []).map(loadReference));
+  const referenceSize = options.matchReferenceCanvas && references[0]?.bytes ? await readImageSize(references[0].bytes) : undefined;
 
   const response = await fetch(`${ENV.openRouterBaseUrl}/chat/completions`, {
     method: "POST",
@@ -78,12 +100,15 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gene
     body: JSON.stringify({
       model,
       modalities: ["image", "text"],
+      ...(referenceSize && model.startsWith("google/")
+        ? { image_config: { aspect_ratio: nearestSupportedAspectRatio(referenceSize) } }
+        : {}),
       messages: [
         {
           role: "user",
           content: [
             { type: "text", text: options.prompt },
-            ...references.map(url => ({ type: "image_url", image_url: { url } })),
+            ...references.map(({ dataUrl }) => ({ type: "image_url", image_url: { url: dataUrl } })),
           ],
         },
       ],
@@ -103,9 +128,38 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gene
   if (!dataUrl) {
     throw new Error(`Image generation returned no image${result.error?.message ? `: ${result.error.message}` : ""}`);
   }
-  const { buffer, mimeType } = parseDataUrl(dataUrl);
+  const parsed = parseDataUrl(dataUrl);
+  let buffer = parsed.buffer;
+  let mimeType = parsed.mimeType;
+
+  if (referenceSize || options.keyColor) {
+    if (referenceSize) buffer = await fitToReferenceCanvas(buffer, referenceSize);
+    if (options.keyColor) {
+      const keyed = await keyColorToAlpha(buffer, options.keyColor);
+      if (!keyed) throw new TransparentCutoutError("Transparent cut-out failed: no clean key background in the generated image");
+      buffer = keyed;
+    }
+    mimeType = "image/png";
+  }
 
   const extension = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png";
   const { url } = await storagePut(`generated/${Date.now()}.${extension}`, buffer, mimeType);
   return { url, byteSize: buffer.length, mimeType };
+}
+
+const KEYING_ATTEMPTS = 2;
+
+export async function generateImage(options: GenerateImageOptions): Promise<GenerateImageResponse> {
+  if (!options.keyColor) return generateImageOnce(options);
+  // Models occasionally ignore the flat-background instruction; one more try usually fixes it.
+  let lastError: unknown;
+  for (let attempt = 0; attempt < KEYING_ATTEMPTS; attempt++) {
+    try {
+      return await generateImageOnce(options);
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof TransparentCutoutError)) throw error;
+    }
+  }
+  throw lastError;
 }

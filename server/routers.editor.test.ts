@@ -260,7 +260,7 @@ describe("editor.process", () => {
     );
     expect(mocks.generateImage).toHaveBeenCalledWith(expect.objectContaining({
       originalImages: [{ url: "https://signed-storage.iwantphoto.test/uploads/source.jpg", mimeType: "image/jpeg" }],
-      prompt: expect.stringContaining("fully transparent background"),
+      prompt: expect.stringContaining("pure green (#00FF00)"),
     }));
     const backgroundPrompt = mocks.generateImage.mock.calls[0]?.[0]?.prompt as string;
     expect(backgroundPrompt).toContain("primary business-relevant subject");

@@ -11,7 +11,7 @@ export const ENV = {
   openRouterBaseUrl: (process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/, ""),
   openRouterLlmModel: process.env.OPENROUTER_LLM_MODEL ?? "",
   openRouterImageModel: process.env.OPENROUTER_IMAGE_MODEL ?? "google/gemini-2.5-flash-image",
-  openRouterImageFallbackModel: process.env.OPENROUTER_IMAGE_FALLBACK_MODEL ?? "openai/gpt-5-image",
+  openRouterImageFallbackModel: process.env.OPENROUTER_IMAGE_FALLBACK_MODEL ?? "google/gemini-3.1-flash-image",
   s3Endpoint: process.env.S3_ENDPOINT ?? "",
   s3Region: process.env.S3_REGION ?? "auto",
   s3Bucket: process.env.S3_BUCKET ?? "",

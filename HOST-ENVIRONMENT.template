@@ -16,7 +16,7 @@ OWNER_EMAIL=
 OPENROUTER_API_KEY=
 # Optional overrides; defaults shown.
 OPENROUTER_IMAGE_MODEL=google/gemini-2.5-flash-image
-OPENROUTER_IMAGE_FALLBACK_MODEL=openai/gpt-5-image
+OPENROUTER_IMAGE_FALLBACK_MODEL=google/gemini-3.1-flash-image
 # Used only when a call site passes no model.
 OPENROUTER_LLM_MODEL=
 

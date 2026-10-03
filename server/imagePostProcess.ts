@@ -26,12 +26,28 @@ export function nearestSupportedAspectRatio({ width, height }: ImageSize): strin
   return best[0];
 }
 
+/**
+ * Size as the photo is displayed. Phone cameras store portrait shots as landscape
+ * pixels plus an EXIF orientation flag, which browsers apply but raw metadata does not.
+ */
 export async function readImageSize(buffer: Buffer): Promise<ImageSize | undefined> {
   try {
-    const { width, height } = await sharp(buffer).metadata();
-    return width && height ? { width, height } : undefined;
+    const { width, height, orientation } = await sharp(buffer).metadata();
+    if (!width || !height) return undefined;
+    // EXIF orientations 5-8 rotate by 90°, swapping width and height.
+    return orientation && orientation >= 5 ? { width: height, height: width } : { width, height };
   } catch {
     return undefined;
+  }
+}
+
+/** Bakes the EXIF orientation into the pixels so image models see the photo the way the user does. */
+export async function toUprightImage(buffer: Buffer): Promise<Buffer> {
+  try {
+    const { orientation } = await sharp(buffer).metadata();
+    return orientation && orientation > 1 ? await sharp(buffer).rotate().toBuffer() : buffer;
+  } catch {
+    return buffer;
   }
 }
 

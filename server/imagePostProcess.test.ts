@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { fitToReferenceCanvas, keyColorToAlpha, nearestSupportedAspectRatio, pickKeyColor } from "./imagePostProcess";
+import { fitToReferenceCanvas, keyColorToAlpha, nearestSupportedAspectRatio, pickKeyColor, readImageSize, toUprightImage } from "./imagePostProcess";
 
 async function solid(width: number, height: number, background: string) {
   return sharp({ create: { width, height, channels: 3, background } }).png().toBuffer();
@@ -59,5 +59,27 @@ describe("pickKeyColor", () => {
     expect(await pickKeyColor(await solid(64, 64, "#00ff00"))).toBe("magenta");
     expect(await pickKeyColor(await solid(64, 64, "#ff00ff"))).toBe("green");
     expect(await pickKeyColor(await solid(64, 64, "#2b6cb0"))).toBe("green");
+  });
+});
+
+/** An iPhone-style portrait shot: landscape pixels plus EXIF orientation 6 (display rotated 90°). */
+async function phonePortrait() {
+  return sharp({ create: { width: 400, height: 300, channels: 3, background: "#888" } }).jpeg().withMetadata({ orientation: 6 }).toBuffer();
+}
+
+describe("EXIF orientation", () => {
+  it("reports the size the photo is displayed at, not the stored pixel size", async () => {
+    expect(await readImageSize(await phonePortrait())).toEqual({ width: 300, height: 400 });
+  });
+
+  it("bakes the rotation into the pixels so models see an upright portrait", async () => {
+    const upright = await sharp(await toUprightImage(await phonePortrait())).metadata();
+    expect({ width: upright.width, height: upright.height }).toEqual({ width: 300, height: 400 });
+    expect(upright.orientation ?? 1).toBe(1);
+  });
+
+  it("leaves photos without a rotation flag untouched", async () => {
+    const plain = await solid(200, 100, "#888");
+    expect(await toUprightImage(plain)).toBe(plain);
   });
 });

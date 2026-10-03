@@ -10,7 +10,7 @@
  * Reference images are fetched server-side and sent as data URLs so the result
  * does not depend on the upstream provider being able to reach our storage.
  */
-import { fitToReferenceCanvas, keyColorToAlpha, nearestSupportedAspectRatio, readImageSize, type KeyColor } from "../imagePostProcess";
+import { fitToReferenceCanvas, keyColorToAlpha, nearestSupportedAspectRatio, readImageSize, toUprightImage, type KeyColor } from "../imagePostProcess";
 import { storagePut } from "../storage";
 import { ENV } from "./env";
 
@@ -48,20 +48,27 @@ export type GenerateImageResponse = {
 
 type ReferenceImage = NonNullable<GenerateImageOptions["originalImages"]>[number];
 
-async function loadReference(image: ReferenceImage): Promise<{ dataUrl: string; bytes?: Buffer }> {
-  if (image.b64Json) {
-    return { dataUrl: `data:${image.mimeType ?? "image/png"};base64,${image.b64Json}`, bytes: Buffer.from(image.b64Json, "base64") };
-  }
+async function readReference(image: ReferenceImage): Promise<{ bytes: Buffer; mime: string }> {
+  if (image.b64Json) return { bytes: Buffer.from(image.b64Json, "base64"), mime: image.mimeType ?? "image/png" };
   if (!image.url) throw new Error("Reference image has no url or data");
   if (image.url.startsWith("data:")) {
-    const encoded = image.url.match(/^data:[^,]*;base64,([\s\S]+)$/)?.[1];
-    return { dataUrl: image.url, bytes: encoded ? Buffer.from(encoded, "base64") : undefined };
+    const match = image.url.match(/^data:([^;,]+)[^,]*;base64,([\s\S]+)$/);
+    if (!match) throw new Error("Reference image data URL is not base64 encoded");
+    return { bytes: Buffer.from(match[2], "base64"), mime: image.mimeType ?? match[1] };
   }
   const response = await fetch(image.url, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`Reference image fetch failed (${response.status}) via signed url`);
-  const mime = image.mimeType ?? response.headers.get("content-type") ?? "image/png";
-  const bytes = Buffer.from(await response.arrayBuffer());
-  return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}`, bytes };
+  return {
+    bytes: Buffer.from(await response.arrayBuffer()),
+    mime: image.mimeType ?? response.headers.get("content-type") ?? "image/png",
+  };
+}
+
+async function loadReference(image: ReferenceImage): Promise<{ dataUrl: string; bytes: Buffer }> {
+  const { bytes, mime } = await readReference(image);
+  // Phone photos carry an EXIF rotation; send upright pixels so the model and the canvas match what the user sees.
+  const upright = await toUprightImage(bytes);
+  return { dataUrl: `data:${mime};base64,${upright.toString("base64")}`, bytes: upright };
 }
 
 type OpenRouterImageResponse = {
@@ -87,7 +94,7 @@ async function generateImageOnce(options: GenerateImageOptions): Promise<Generat
   }
   const model = options.model ?? ENV.openRouterImageModel;
   const references = await Promise.all((options.originalImages ?? []).map(loadReference));
-  const referenceSize = options.matchReferenceCanvas && references[0]?.bytes ? await readImageSize(references[0].bytes) : undefined;
+  const referenceSize = options.matchReferenceCanvas && references[0] ? await readImageSize(references[0].bytes) : undefined;
 
   const response = await fetch(`${ENV.openRouterBaseUrl}/chat/completions`, {
     method: "POST",

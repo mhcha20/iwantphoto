@@ -216,15 +216,23 @@ export async function composeCutout(reference: Buffer, generated: Buffer, key: K
     const warped = warpToReference(cutout, canvas, alignment);
     sealHairlineGaps(warped);
     const original = await readRgba(reference, canvas);
+    // The model's alpha only decides WHAT is subject. Its in-between values are not real
+    // transparency: a muted key colour close to the subject (pinkish magenta vs. skin) would
+    // otherwise leave the subject see-through. Harden it to a solid mask with a ~1px soft edge.
+    const solid = Buffer.alloc(canvas.width * canvas.height);
+    for (let i = 0; i < solid.length; i++) solid[i] = warped.data[i * 4 + 3] >= 128 ? 255 : 0;
+    const alpha = await sharp(solid, { raw: { width: canvas.width, height: canvas.height, channels: 1 } })
+      .blur(0.8)
+      .extractChannel(0)
+      .raw()
+      .toBuffer();
     result = { data: Buffer.alloc(warped.data.length), width: canvas.width, height: canvas.height };
-    for (let o = 0; o < warped.data.length; o += 4) {
-      const alpha = warped.data[o + 3];
-      // Solid subject: the original's own pixels. Soft edge: the model's de-spilled colour.
-      const src = alpha >= 250 ? original.data : warped.data;
-      result.data[o] = src[o];
-      result.data[o + 1] = src[o + 1];
-      result.data[o + 2] = src[o + 2];
-      result.data[o + 3] = alpha;
+    for (let i = 0; i < alpha.length; i++) {
+      const o = i * 4;
+      result.data[o] = original.data[o];
+      result.data[o + 1] = original.data[o + 1];
+      result.data[o + 2] = original.data[o + 2];
+      result.data[o + 3] = alpha[i];
     }
   }
   let buffer = await encodeRgba(result);

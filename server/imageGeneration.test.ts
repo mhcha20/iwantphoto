@@ -83,6 +83,41 @@ describe("OpenRouter image generation", () => {
     expect({ width: stored.width, height: stored.height }).toEqual({ width: 300, height: 400 });
   });
 
+  it("in-place cut-out: stores the original's pixels at the original geometry even when the model drifts", async () => {
+    const W = 600, H = 400;
+    const box = { x: 210, y: 120, w: 150, h: 170 };
+    const draw = (background: string) =>
+      sharp(Buffer.from(`<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="${background}"/>
+        <rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" fill="#2b6cb0"/>
+        <rect x="${box.x + 15}" y="${box.y + 40}" width="${box.w - 30}" height="20" fill="#f6ad55"/>
+        <rect x="${box.x + 15}" y="${box.y + 110}" width="${box.w - 30}" height="20" fill="#e2e8f0"/></svg>`)).png().toBuffer();
+    const original = await draw("#c9b79c");
+    // The model returns the subject on green, 8% larger and shifted left 4%, at a different resolution.
+    const { warpToReference } = await import("./imageAlignment");
+    const raw = await sharp(await draw("#8fbc78")).ensureAlpha().raw().toBuffer();
+    const drifted = warpToReference({ data: raw, width: W, height: H }, { width: 768, height: 512 }, { scale: 1.08, dx: -0.04, dy: 0 });
+    const generated = await sharp(drifted.data, { raw: { width: 768, height: 512, channels: 4 } }).flatten({ background: "#8fbc78" }).png().toBuffer();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ choices: [{ message: { images: [{ image_url: { url: `data:image/png;base64,${generated.toString("base64")}` } }] } }] }),
+      { status: 200 },
+    )));
+
+    await generateImage({
+      prompt: "cut out the box",
+      originalImages: [{ b64Json: original.toString("base64"), mimeType: "image/png" }],
+      inPlace: { kind: "cutout", keyColor: "green", background: "transparent" },
+    });
+
+    const { data, info } = await sharp(mocks.storagePut.mock.calls[0][1]).raw().toBuffer({ resolveWithObject: true });
+    expect({ width: info.width, height: info.height }).toEqual({ width: W, height: H });
+    const alphaAt = (x: number, y: number) => data[(y * W + x) * 4 + 3];
+    // Opaque exactly where the box is in the ORIGINAL, transparent just outside it.
+    expect(alphaAt(box.x + 6, box.y + 6)).toBe(255);
+    expect(alphaAt(box.x + box.w - 6, box.y + box.h - 6)).toBe(255);
+    expect(alphaAt(box.x - 6, box.y + 50)).toBe(0);
+    expect(alphaAt(box.x + box.w + 6, box.y + 50)).toBe(0);
+  });
+
   it("fails clearly when the provider returns no image", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: {} }] }), { status: 200 })));
     await expect(generateImage({ prompt: "x" })).rejects.toThrow(/returned no image/);

@@ -10,6 +10,7 @@
  * Reference images are fetched server-side and sent as data URLs so the result
  * does not depend on the upstream provider being able to reach our storage.
  */
+import { composeCleanup, composeCutout } from "../imageAlignment";
 import { fitToReferenceCanvas, keyColorToAlpha, nearestSupportedAspectRatio, readImageSize, toUprightImage, type KeyColor } from "../imagePostProcess";
 import { storagePut } from "../storage";
 import { ENV } from "./env";
@@ -38,6 +39,14 @@ export type GenerateImageOptions = {
    * Throws when the result does not have a usable key background.
    */
   keyColor?: KeyColor;
+  /**
+   * Edit the first reference in place. The model's redraw drifts a few percent, so the result is
+   * re-aligned to the original: cut-outs keep the original pixels with the model's alpha, clean-ups
+   * keep the original everywhere except what the model changed. `selectionIndex` points at a brush mask reference.
+   */
+  inPlace?:
+    | { kind: "cutout"; keyColor: KeyColor; background: "transparent" | "white" }
+    | { kind: "cleanup"; selectionIndex?: number };
 };
 
 export type GenerateImageResponse = {
@@ -94,7 +103,7 @@ async function generateImageOnce(options: GenerateImageOptions): Promise<Generat
   }
   const model = options.model ?? ENV.openRouterImageModel;
   const references = await Promise.all((options.originalImages ?? []).map(loadReference));
-  const referenceSize = options.matchReferenceCanvas && references[0] ? await readImageSize(references[0].bytes) : undefined;
+  const referenceSize = (options.matchReferenceCanvas || options.inPlace) && references[0] ? await readImageSize(references[0].bytes) : undefined;
 
   const response = await fetch(`${ENV.openRouterBaseUrl}/chat/completions`, {
     method: "POST",
@@ -139,7 +148,23 @@ async function generateImageOnce(options: GenerateImageOptions): Promise<Generat
   let buffer = parsed.buffer;
   let mimeType = parsed.mimeType;
 
-  if (referenceSize || options.keyColor) {
+  if (options.inPlace) {
+    const original = references[0]?.bytes;
+    if (!original) throw new Error("In-place edit needs the original photo as the first reference");
+    const edit = options.inPlace;
+    const composed = edit.kind === "cutout"
+      ? await composeCutout(original, buffer, edit.keyColor, edit.background)
+      : await composeCleanup(original, buffer, edit.selectionIndex === undefined ? undefined : references[edit.selectionIndex]?.bytes);
+    if (!composed) throw new TransparentCutoutError("Transparent cut-out failed: no clean key background in the generated image");
+    if (!composed.aligned) {
+      console.warn("[iwantphoto edit] model output could not be aligned to the original; using it as returned", {
+        kind: edit.kind,
+        score: composed.alignment?.score,
+      });
+    }
+    buffer = composed.buffer;
+    mimeType = "image/png";
+  } else if (referenceSize || options.keyColor) {
     if (referenceSize) buffer = await fitToReferenceCanvas(buffer, referenceSize);
     if (options.keyColor) {
       const keyed = await keyColorToAlpha(buffer, options.keyColor);
@@ -157,7 +182,7 @@ async function generateImageOnce(options: GenerateImageOptions): Promise<Generat
 const KEYING_ATTEMPTS = 2;
 
 export async function generateImage(options: GenerateImageOptions): Promise<GenerateImageResponse> {
-  if (!options.keyColor) return generateImageOnce(options);
+  if (!options.keyColor && options.inPlace?.kind !== "cutout") return generateImageOnce(options);
   // Models occasionally ignore the flat-background instruction; one more try usually fixes it.
   let lastError: unknown;
   for (let attempt = 0; attempt < KEYING_ATTEMPTS; attempt++) {

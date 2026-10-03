@@ -5,15 +5,29 @@ APP_BASE_URL=https://iwantphoto.com
 DATABASE_URL=mysql://USER:PASSWORD@HOST:3306/iwantphoto
 JWT_SECRET=generate-a-long-random-secret-at-least-32-bytes
 
-# Option A: retain Manus OAuth temporarily. Option B: replace the OAuth implementation.
-VITE_APP_ID=
-VITE_OAUTH_PORTAL_URL=
-OAUTH_SERVER_URL=
-OWNER_OPEN_ID=
+# Google sign-in (OAuth client type "Web application").
+# Authorized redirect URI: https://iwantphoto.com/api/oauth/callback
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# Verified Google email that receives the admin role on sign-in.
+OWNER_EMAIL=
 
-# Option A: retain Manus Forge temporarily. Option B: replace storage and AI adapters.
-BUILT_IN_FORGE_API_URL=
-BUILT_IN_FORGE_API_KEY=
+# OpenRouter (image editing + vision/JSON LLM).
+OPENROUTER_API_KEY=
+# Optional overrides; defaults shown.
+OPENROUTER_IMAGE_MODEL=google/gemini-2.5-flash-image
+OPENROUTER_IMAGE_FALLBACK_MODEL=google/gemini-3.1-flash-image
+# Used only when a call site passes no model.
+OPENROUTER_LLM_MODEL=
+
+# S3-compatible bucket (Railway Bucket, R2, B2, MinIO, AWS S3).
+S3_ENDPOINT=
+S3_REGION=auto
+# Only for MinIO-style servers; Railway Buckets use virtual-host URLs.
+S3_FORCE_PATH_STYLE=false
+S3_BUCKET=
+S3_ACCESS_KEY_ID=
+S3_SECRET_ACCESS_KEY=
 
 # Stripe server credentials and product Price IDs.
 IWANTPHOTO_BILLING_ENABLED=false

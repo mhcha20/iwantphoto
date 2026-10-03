@@ -1,12 +1,15 @@
-// Preconfigured storage helpers for Manus WebDev templates
-// Uploads via Forge Server presigned URL to S3 (PUT direct).
-// Downloads return /manus-storage/{key} paths served via 307 redirect.
+// S3-compatible object storage (Railway Bucket, R2, B2, MinIO, AWS S3).
+// Stored URLs stay `/manus-storage/{key}` so existing database rows keep working;
+// the proxy in _core/storageProxy.ts redirects them to short-lived signed URLs.
 
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ENV } from "./_core/env";
 
 const FALLBACK_APP_BASE_URL = "https://iwantphoto.com";
+const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
-function getSafeAbsoluteUrl(value: string, purpose: "app base" | "Forge endpoint"): URL {
+function getSafeAbsoluteUrl(value: string, purpose: "app base"): URL {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("unsupported protocol");
@@ -28,22 +31,20 @@ function getSafeAppBaseUrl(): URL {
   }
 }
 
-function getForgeConfig() {
-  const forgeUrl = ENV.forgeApiUrl;
-  const forgeKey = ENV.forgeApiKey;
+let cachedClient: S3Client | undefined;
 
-  if (!forgeUrl || !forgeKey) {
-    throw new Error(
-      "Storage config missing: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY",
-    );
+function getS3() {
+  if (!ENV.s3Bucket || !ENV.s3AccessKeyId || !ENV.s3SecretAccessKey) {
+    throw new Error("Storage config missing: set S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY");
   }
-
-  try {
-    const parsedForgeUrl = getSafeAbsoluteUrl(forgeUrl, "Forge endpoint");
-    return { forgeUrl: parsedForgeUrl.toString().replace(/\/+$/, ""), forgeKey };
-  } catch {
-    throw new Error("Image storage service is temporarily unavailable");
-  }
+  cachedClient ??= new S3Client({
+    region: ENV.s3Region,
+    ...(ENV.s3Endpoint ? { endpoint: ENV.s3Endpoint } : {}),
+    // Railway Buckets and AWS use virtual-host URLs; MinIO-style servers need S3_FORCE_PATH_STYLE=true.
+    forcePathStyle: ENV.s3ForcePathStyle,
+    credentials: { accessKeyId: ENV.s3AccessKeyId, secretAccessKey: ENV.s3SecretAccessKey },
+  });
+  return { client: cachedClient, bucket: ENV.s3Bucket };
 }
 
 function normalizeKey(relKey: string): string {
@@ -62,45 +63,10 @@ export async function storagePut(
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream",
 ): Promise<{ key: string; url: string }> {
-  const { forgeUrl, forgeKey } = getForgeConfig();
+  const { client, bucket } = getS3();
   const key = appendHashSuffix(normalizeKey(relKey));
-
-  // 1. Get presigned PUT URL from Forge
-  const presignUrl = new URL("v1/storage/presign/put", forgeUrl + "/");
-  presignUrl.searchParams.set("path", key);
-
-  const presignResp = await fetch(presignUrl, {
-    headers: { Authorization: `Bearer ${forgeKey}` },
-  });
-
-  if (!presignResp.ok) {
-    const msg = await presignResp.text().catch(() => presignResp.statusText);
-    throw new Error(`Storage presign failed (${presignResp.status}): ${msg}`);
-  }
-
-  const { url: s3Url } = (await presignResp.json()) as { url: string };
-  try {
-    getSafeAbsoluteUrl(s3Url, "Forge endpoint");
-  } catch {
-    throw new Error("Image storage service returned an invalid upload URL");
-  }
-
-  // 2. PUT file directly to S3
-  const blob =
-    typeof data === "string"
-      ? new Blob([data], { type: contentType })
-      : new Blob([data as any], { type: contentType });
-
-  const uploadResp = await fetch(s3Url, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: blob,
-  });
-
-  if (!uploadResp.ok) {
-    throw new Error(`Storage upload to S3 failed (${uploadResp.status})`);
-  }
-
+  const body = typeof data === "string" ? Buffer.from(data) : data;
+  await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }));
   return { key, url: `/manus-storage/${key}` };
 }
 
@@ -110,28 +76,9 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
 }
 
 export async function storageGetSignedUrl(relKey: string): Promise<string> {
-  const { forgeUrl, forgeKey } = getForgeConfig();
+  const { client, bucket } = getS3();
   const key = normalizeKey(relKey);
-
-  const getUrl = new URL("v1/storage/presign/get", forgeUrl + "/");
-  getUrl.searchParams.set("path", key);
-
-  const resp = await fetch(getUrl, {
-    headers: { Authorization: `Bearer ${forgeKey}` },
-  });
-
-  if (!resp.ok) {
-    const msg = await resp.text().catch(() => resp.statusText);
-    throw new Error(`Storage signed URL failed (${resp.status}): ${msg}`);
-  }
-
-  const { url } = (await resp.json()) as { url: string };
-  try {
-    getSafeAbsoluteUrl(url, "Forge endpoint");
-    return url;
-  } catch {
-    throw new Error("Image storage service returned an invalid download URL");
-  }
+  return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: SIGNED_URL_TTL_SECONDS });
 }
 
 /** Extracts a project-managed storage key without allowing arbitrary remote URLs. */
@@ -157,16 +104,17 @@ export function getManagedStorageKey(storageUrl: string): string | undefined {
   return key && !key.includes("..") ? key : undefined;
 }
 
-/** Reads an S3 object's Content-Length through a short-lived project-signed URL. */
+/** Reads an S3 object's Content-Length with a HEAD request. */
 export async function storageGetByteSize(relKey: string): Promise<number> {
-  const signedUrl = await storageGetSignedUrl(relKey);
-  // A signed GET URL is portable across S3-compatible providers. Requesting
-  // one byte avoids downloading an entire legacy asset just to read its size.
-  const response = await fetch(signedUrl, { headers: { Range: "bytes=0-0" } });
-  if (!response.ok) throw new Error(`Storage size lookup failed (${response.status})`);
-  const contentRange = response.headers.get("content-range");
-  const rangeSize = contentRange?.match(/\/(\d+)$/)?.[1];
-  const byteSize = Number(rangeSize ?? response.headers.get("content-length"));
+  const { client, bucket } = getS3();
+  const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: normalizeKey(relKey) }));
+  const byteSize = Number(head.ContentLength);
   if (!Number.isSafeInteger(byteSize) || byteSize < 0) throw new Error("Storage object returned no valid Content-Length");
   return byteSize;
+}
+
+/** Removes one object; used by the deployment verification script to clean up its probe file. */
+export async function storageDelete(relKey: string): Promise<void> {
+  const { client, bucket } = getS3();
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: normalizeKey(relKey) }));
 }

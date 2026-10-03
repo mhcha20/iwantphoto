@@ -42,7 +42,9 @@ export function getSessionCookieOptions(
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    // Lax: nothing embeds the app cross-site any more, and Lax blocks cross-site POST (CSRF) while
+    // still sending the cookie on the top-level redirect back from Google and Stripe.
+    sameSite: "lax",
     secure: isSecureRequest(req),
   };
 }

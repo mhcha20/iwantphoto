@@ -164,7 +164,7 @@ describe("editor.process", () => {
     mocks.storageGetSignedUrl.mockImplementation(async (key: string) => `https://signed-storage.iwantphoto.test/${key}`);
     mocks.getManagedStorageKey.mockImplementation((url: string) => url.startsWith("/manus-storage/") ? url.slice("/manus-storage/".length) : undefined);
     mocks.generateImage.mockResolvedValue({ url: "/manus-storage/processed/result.png" });
-    mocks.generateMarketplaceImage.mockResolvedValue({ url: "/manus-storage/processed/result.png", byteSize: 0, model: "MODEL_GPT_IMAGE_2", usedFallback: false });
+    mocks.generateMarketplaceImage.mockResolvedValue({ url: "/manus-storage/processed/result.png", byteSize: 0, model: "google/gemini-2.5-flash-image", usedFallback: false });
     mocks.inspectMarketplaceCompositionFromUrl.mockResolvedValue({ whiteRatio: 0.4, signature: "non-white-product-scene", shouldRetry: false });
     mocks.createGoogleMerchantAiImage.mockResolvedValue({
       buffer: Buffer.from("tagged-google-merchant-png"),
@@ -260,9 +260,7 @@ describe("editor.process", () => {
     );
     expect(mocks.generateImage).toHaveBeenCalledWith(expect.objectContaining({
       originalImages: [{ url: "https://signed-storage.iwantphoto.test/uploads/source.jpg", mimeType: "image/jpeg" }],
-      model: "MODEL_GPT_IMAGE_2",
-      quality: "medium",
-      prompt: expect.stringContaining("fully transparent background"),
+      prompt: expect.stringContaining("pure green (#00FF00)"),
     }));
     const backgroundPrompt = mocks.generateImage.mock.calls[0]?.[0]?.prompt as string;
     expect(backgroundPrompt).toContain("primary business-relevant subject");

@@ -1,42 +1,21 @@
 /**
- * Image generation helper using internal ImageService
+ * Image generation / editing through OpenRouter (chat completions with image output).
  *
- * Example usage:
- *   const { url: imageUrl } = await generateImage({
- *     prompt: "A serene landscape with mountains"
+ * Example:
+ *   const { url } = await generateImage({
+ *     prompt: "Remove the background",
+ *     originalImages: [{ url: signedUrl, mimeType: "image/jpeg" }],
  *   });
  *
- * For editing:
- *   const { url: imageUrl } = await generateImage({
- *     prompt: "Add a rainbow to this landscape",
- *     originalImages: [{
- *       url: "https://example.com/original.jpg",
- *       mimeType: "image/jpeg"
- *     }]
- *   });
+ * Reference images are fetched server-side and sent as data URLs so the result
+ * does not depend on the upstream provider being able to reach our storage.
  */
-import { storagePut } from "server/storage";
+import { fitToReferenceCanvas, keyColorToAlpha, nearestSupportedAspectRatio, readImageSize, type KeyColor } from "../imagePostProcess";
+import { storagePut } from "../storage";
 import { ENV } from "./env";
 
-// Default model for generated sites. "MODEL_GPT_IMAGE_2" is the forge images.v1
-// enum for GPT Image 2 (id: gpt-image-2). If omitted, forge falls back to Gemini 2.5 Flash.
-const DEFAULT_IMAGE_MODEL = "MODEL_GPT_IMAGE_2";
-const DEFAULT_IMAGE_QUALITY = "medium";
-
-function getImageServiceUrl(servicePath: string): string {
-  try {
-    const parsedBase = new URL(ENV.forgeApiUrl);
-    if (parsedBase.protocol !== "https:" && parsedBase.protocol !== "http:") {
-      throw new Error("unsupported protocol");
-    }
-    const baseUrl = parsedBase.toString().endsWith("/")
-      ? parsedBase.toString()
-      : `${parsedBase.toString()}/`;
-    return new URL(servicePath, baseUrl).toString();
-  } catch {
-    throw new Error("Image generation service is temporarily unavailable");
-  }
-}
+const IMAGE_FETCH_TIMEOUT_MS = 30_000;
+const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
 
 export type GenerateImageOptions = {
   prompt: string;
@@ -45,10 +24,20 @@ export type GenerateImageOptions = {
     b64Json?: string;
     mimeType?: string;
   }>;
-  /** Forge image model enum, e.g. "MODEL_GPT_IMAGE_2". Defaults to GPT Image 2. */
+  /** OpenRouter model id, e.g. "google/gemini-2.5-flash-image". Defaults to OPENROUTER_IMAGE_MODEL. */
   model?: string;
-  /** Generation quality, e.g. "medium" | "high". Defaults to "medium" for GPT Image 2. */
+  /** Kept for call-site compatibility; OpenRouter image models choose their own quality. */
   quality?: string;
+  /**
+   * Edit-in-place mode: ask for the first reference's aspect ratio and, after generation,
+   * crop/scale the result back to that canvas (never enlarging past the model output).
+   */
+  matchReferenceCanvas?: boolean;
+  /**
+   * The prompt asked for a flat key-colour background; convert it to real transparency.
+   * Throws when the result does not have a usable key background.
+   */
+  keyColor?: KeyColor;
 };
 
 export type GenerateImageResponse = {
@@ -57,110 +46,120 @@ export type GenerateImageResponse = {
   mimeType?: string;
 };
 
-export async function generateImage(
-  options: GenerateImageOptions
-): Promise<GenerateImageResponse> {
-  if (!ENV.forgeApiUrl) {
-    throw new Error("BUILT_IN_FORGE_API_URL is not configured");
+type ReferenceImage = NonNullable<GenerateImageOptions["originalImages"]>[number];
+
+async function loadReference(image: ReferenceImage): Promise<{ dataUrl: string; bytes?: Buffer }> {
+  if (image.b64Json) {
+    return { dataUrl: `data:${image.mimeType ?? "image/png"};base64,${image.b64Json}`, bytes: Buffer.from(image.b64Json, "base64") };
   }
-  if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
+  if (!image.url) throw new Error("Reference image has no url or data");
+  if (image.url.startsWith("data:")) {
+    const encoded = image.url.match(/^data:[^,]*;base64,([\s\S]+)$/)?.[1];
+    return { dataUrl: image.url, bytes: encoded ? Buffer.from(encoded, "base64") : undefined };
   }
-
-  const fullUrl = getImageServiceUrl("images.v1.ImageService/GenerateImage");
-
-  const model = options.model ?? DEFAULT_IMAGE_MODEL;
-  const quality =
-    options.quality ?? (model === DEFAULT_IMAGE_MODEL ? DEFAULT_IMAGE_QUALITY : undefined);
-
-  const response = await fetch(fullUrl, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      "connect-protocol-version": "1",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify({
-      prompt: options.prompt,
-      original_images: options.originalImages || [],
-      model,
-      ...(quality ? { quality } : {}),
-    }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `Image generation request failed (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
-    );
-  }
-
-  const result = (await response.json()) as {
-    image: {
-      b64Json: string;
-      mimeType: string;
-    };
-  };
-  const base64Data = result.image.b64Json;
-  const buffer = Buffer.from(base64Data, "base64");
-
-  // Save to S3
-  const { url } = await storagePut(
-    `generated/${Date.now()}.png`,
-    buffer,
-    result.image.mimeType
-  );
-  return {
-    url,
-    byteSize: buffer.length,
-    mimeType: result.image.mimeType,
-  };
+  const response = await fetch(image.url, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
+  if (!response.ok) throw new Error(`Reference image fetch failed (${response.status}) via signed url`);
+  const mime = image.mimeType ?? response.headers.get("content-type") ?? "image/png";
+  const bytes = Buffer.from(await response.arrayBuffer());
+  return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}`, bytes };
 }
 
-export type ImageModelInfo = {
-  /** Forge model enum, e.g. "MODEL_GPT_IMAGE_2". Pass into generateImage({ model }). */
-  model?: string;
-  /** Stable model id, e.g. "gpt-image-2". */
-  id?: string;
+type OpenRouterImageResponse = {
+  choices?: Array<{
+    message?: {
+      images?: Array<{ image_url?: { url?: string } }>;
+    };
+  }>;
+  error?: { message?: string };
 };
 
-export type ListImageModelsResponse = {
-  models: ImageModelInfo[];
-};
+function parseDataUrl(value: string): { buffer: Buffer; mimeType: string } {
+  const match = value.match(/^data:([^;,]+);base64,([\s\S]+)$/);
+  if (!match) throw new Error("Image generation returned an unsupported image format");
+  return { mimeType: match[1], buffer: Buffer.from(match[2], "base64") };
+}
 
-/**
- * List the image models the internal ImageService currently supports.
- * Feed a returned `model` value into generateImage({ model }).
- */
-export async function listImageModels(): Promise<ListImageModelsResponse> {
-  if (!ENV.forgeApiUrl) {
-    throw new Error("BUILT_IN_FORGE_API_URL is not configured");
+export class TransparentCutoutError extends Error {}
+
+async function generateImageOnce(options: GenerateImageOptions): Promise<GenerateImageResponse> {
+  if (!ENV.openRouterApiKey) {
+    throw new Error("OPENROUTER_API_KEY is not configured");
   }
-  if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
-  }
+  const model = options.model ?? ENV.openRouterImageModel;
+  const references = await Promise.all((options.originalImages ?? []).map(loadReference));
+  const referenceSize = options.matchReferenceCanvas && references[0]?.bytes ? await readImageSize(references[0].bytes) : undefined;
 
-  const fullUrl = getImageServiceUrl("images.v1.ImageService/ListModels");
-
-  const response = await fetch(fullUrl, {
+  const response = await fetch(`${ENV.openRouterBaseUrl}/chat/completions`, {
     method: "POST",
     headers: {
-      accept: "application/json",
       "content-type": "application/json",
-      "connect-protocol-version": "1",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${ENV.openRouterApiKey}`,
+      "HTTP-Referer": ENV.appBaseUrl,
+      "X-Title": "Iwantphoto",
     },
-    body: "{}",
+    body: JSON.stringify({
+      model,
+      modalities: ["image", "text"],
+      ...(referenceSize && model.startsWith("google/")
+        ? { image_config: { aspect_ratio: nearestSupportedAspectRatio(referenceSize) } }
+        : {}),
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: options.prompt },
+            ...references.map(({ dataUrl }) => ({ type: "image_url", image_url: { url: dataUrl } })),
+          ],
+        },
+      ],
+    }),
+    signal: AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new Error(
-      `List image models failed (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
+      `Image generation request failed (${response.status} ${response.statusText})${detail ? `: ${detail.slice(0, 500)}` : ""}`
     );
   }
 
-  const result = (await response.json()) as { models?: ImageModelInfo[] };
-  return { models: result.models ?? [] };
+  const result = (await response.json()) as OpenRouterImageResponse;
+  const dataUrl = result.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+  if (!dataUrl) {
+    throw new Error(`Image generation returned no image${result.error?.message ? `: ${result.error.message}` : ""}`);
+  }
+  const parsed = parseDataUrl(dataUrl);
+  let buffer = parsed.buffer;
+  let mimeType = parsed.mimeType;
+
+  if (referenceSize || options.keyColor) {
+    if (referenceSize) buffer = await fitToReferenceCanvas(buffer, referenceSize);
+    if (options.keyColor) {
+      const keyed = await keyColorToAlpha(buffer, options.keyColor);
+      if (!keyed) throw new TransparentCutoutError("Transparent cut-out failed: no clean key background in the generated image");
+      buffer = keyed;
+    }
+    mimeType = "image/png";
+  }
+
+  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png";
+  const { url } = await storagePut(`generated/${Date.now()}.${extension}`, buffer, mimeType);
+  return { url, byteSize: buffer.length, mimeType };
+}
+
+const KEYING_ATTEMPTS = 2;
+
+export async function generateImage(options: GenerateImageOptions): Promise<GenerateImageResponse> {
+  if (!options.keyColor) return generateImageOnce(options);
+  // Models occasionally ignore the flat-background instruction; one more try usually fixes it.
+  let lastError: unknown;
+  for (let attempt = 0; attempt < KEYING_ATTEMPTS; attempt++) {
+    try {
+      return await generateImageOnce(options);
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof TransparentCutoutError)) throw error;
+    }
+  }
+  throw lastError;
 }

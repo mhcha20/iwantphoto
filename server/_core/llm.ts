@@ -67,7 +67,6 @@ export type InvokeParams = {
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
   model?: string;
-  thinking?: Record<string, unknown>;
   reasoning?: Record<string, unknown>;
 };
 
@@ -212,15 +211,21 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+const resolveApiUrl = () => `${ENV.openRouterBaseUrl}/chat/completions`;
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  if (!ENV.openRouterApiKey) {
+    throw new Error("OPENROUTER_API_KEY is not configured");
   }
+};
+
+// Call sites use bare model names ("gpt-5-mini"); OpenRouter needs "vendor/model".
+const toOpenRouterModel = (model: string): string => {
+  if (model.includes("/")) return model;
+  if (/^(gpt|o\d|chatgpt)/i.test(model)) return `openai/${model}`;
+  if (/^gemini/i.test(model)) return `google/${model}`;
+  if (/^claude/i.test(model)) return `anthropic/${model}`;
+  return model;
 };
 
 const normalizeResponseFormat = ({
@@ -352,7 +357,6 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     responseFormat,
     response_format,
     model,
-    thinking,
     reasoning,
     maxTokens,
     max_tokens,
@@ -362,8 +366,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     messages: messages.map(normalizeMessage),
   };
 
-  if (model) {
-    payload.model = model;
+  const resolvedModel = model || ENV.openRouterLlmModel;
+  if (resolvedModel) {
+    payload.model = toOpenRouterModel(resolvedModel);
   }
 
   if (tools && tools.length > 0) {
@@ -383,9 +388,6 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.max_tokens = resolvedMaxTokens;
   }
 
-  if (thinking) {
-    payload.thinking = thinking;
-  }
   if (reasoning) {
     payload.reasoning = reasoning;
   }
@@ -405,7 +407,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${ENV.openRouterApiKey}`,
+      "HTTP-Referer": ENV.appBaseUrl,
+      "X-Title": "Iwantphoto",
     },
     body: JSON.stringify(payload),
   });
@@ -418,37 +422,4 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   }
 
   return (await response.json()) as InvokeResult;
-}
-
-export type ModelInfo = {
-  id: string;
-  object: string;
-  created: number;
-  owned_by: string;
-};
-
-export type ModelsResponse = {
-  object: string;
-  data: ModelInfo[];
-};
-
-export async function listLLMModels(): Promise<ModelsResponse> {
-  assertApiKey();
-
-  const url = ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/models`
-    : "https://forge.manus.im/v1/models";
-
-  const response = await fetchWithBackoff(url, {
-    headers: { authorization: `Bearer ${ENV.forgeApiKey}` },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `List LLM models failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
-  }
-
-  return (await response.json()) as ModelsResponse;
 }

@@ -15,6 +15,7 @@ export const ENV = {
   s3Endpoint: process.env.S3_ENDPOINT ?? "",
   s3Region: process.env.S3_REGION ?? "auto",
   s3Bucket: process.env.S3_BUCKET ?? "",
+  s3ForcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
   s3AccessKeyId: process.env.S3_ACCESS_KEY_ID ?? "",
   s3SecretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? "",
   stripeSecretKey: process.env.IWANTPHOTO_STRIPE_SECRET_KEY ?? "",

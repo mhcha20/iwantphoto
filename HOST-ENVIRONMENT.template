@@ -23,6 +23,8 @@ OPENROUTER_LLM_MODEL=
 # S3-compatible bucket (Railway Bucket, R2, B2, MinIO, AWS S3).
 S3_ENDPOINT=
 S3_REGION=auto
+# Only for MinIO-style servers; Railway Buckets use virtual-host URLs.
+S3_FORCE_PATH_STYLE=false
 S3_BUCKET=
 S3_ACCESS_KEY_ID=
 S3_SECRET_ACCESS_KEY=

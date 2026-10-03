@@ -40,8 +40,8 @@ function getS3() {
   cachedClient ??= new S3Client({
     region: ENV.s3Region,
     ...(ENV.s3Endpoint ? { endpoint: ENV.s3Endpoint } : {}),
-    // Railway/R2/MinIO style endpoints are not virtual-host addressable.
-    forcePathStyle: Boolean(ENV.s3Endpoint),
+    // Railway Buckets and AWS use virtual-host URLs; MinIO-style servers need S3_FORCE_PATH_STYLE=true.
+    forcePathStyle: ENV.s3ForcePathStyle,
     credentials: { accessKeyId: ENV.s3AccessKeyId, secretAccessKey: ENV.s3SecretAccessKey },
   });
   return { client: cachedClient, bucket: ENV.s3Bucket };

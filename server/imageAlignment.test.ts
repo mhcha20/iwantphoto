@@ -22,12 +22,12 @@ function scene(options: { withTag: boolean; subjectOnly?: boolean; background?: 
 }
 
 /** Simulates the model's redraw: shrinks 7%, shifts right 3% / up 2%, changes resolution, tints and softens. */
-async function simulateModel(image: Buffer, outWidth: number) {
+async function simulateModel(image: Buffer, outWidth: number, fill = "#8fbc78") {
   const raw = await sharp(image).ensureAlpha().raw().toBuffer();
   const outHeight = Math.round((outWidth * H) / W);
   const drifted = warpToReference({ data: raw, width: W, height: H }, { width: outWidth, height: outHeight }, { scale: 0.93, dx: 0.03, dy: -0.02 });
   return sharp(drifted.data, { raw: { width: outWidth, height: outHeight, channels: 4 } })
-    .flatten({ background: "#8fbc78" })
+    .flatten({ background: fill })
     .modulate({ brightness: 1.04 })
     .blur(0.6)
     .png()
@@ -83,6 +83,34 @@ describe("composeCutout", () => {
     const alphaAt = (x: number, y: number) => data[(y * W + x) * 4 + 3];
     expect(alphaAt(hole.x + hole.w / 2, hole.y + hole.h / 2)).toBe(0);
     expect(alphaAt(SUBJECT.x + 40, SUBJECT.y + 40)).toBe(255);
+  });
+
+  it("keeps a subject fully opaque in its original colour even when the model's key colour is close to it", async () => {
+    // A skin-toned subject: the model paints a muted, pinkish magenta that is close to skin.
+    const skin = "#d8a08c";
+    const draw = (background: string) =>
+      sharp(Buffer.from(`<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="${background}"/>
+        <rect x="${SUBJECT.x}" y="${SUBJECT.y}" width="${SUBJECT.w}" height="${SUBJECT.h}" rx="40" fill="${skin}"/>
+        <rect x="${SUBJECT.x + 30}" y="${SUBJECT.y + 60}" width="${SUBJECT.w - 60}" height="30" fill="#2b6cb0"/></svg>`)).png().toBuffer();
+    const original = await draw("#c9b79c");
+    const generated = await simulateModel(await draw("#c87ab9"), 1024, "#c87ab9");
+    const result = await composeCutout(original, generated, "magenta", "transparent");
+    expect(result?.aligned).toBe(true);
+
+    const { data } = await sharp(result!.buffer).raw().toBuffer({ resolveWithObject: true });
+    const originalRaw = await sharp(original).ensureAlpha().raw().toBuffer();
+    // Sample the skin area: every pixel opaque and identical to the original.
+    let translucent = 0, recoloured = 0, total = 0;
+    for (let y = SUBJECT.y + 120; y < SUBJECT.y + SUBJECT.h - 30; y += 4) {
+      for (let x = SUBJECT.x + 30; x < SUBJECT.x + SUBJECT.w - 30; x += 4) {
+        const o = (y * W + x) * 4;
+        total++;
+        if (data[o + 3] !== 255) translucent++;
+        if (Math.abs(data[o] - originalRaw[o]) + Math.abs(data[o + 1] - originalRaw[o + 1]) + Math.abs(data[o + 2] - originalRaw[o + 2]) > 3) recoloured++;
+      }
+    }
+    expect(translucent).toBe(0);
+    expect(recoloured).toBe(0);
   });
 
   it("flattens onto white for the white-background style", async () => {

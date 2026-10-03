@@ -96,8 +96,10 @@ function parseDataUrl(value: string): { buffer: Buffer; mimeType: string } {
 }
 
 export class TransparentCutoutError extends Error {}
+/** The model reframed the photo too much to put the edit back on the original; worth one more try. */
+export class UnalignedEditError extends Error {}
 
-async function generateImageOnce(options: GenerateImageOptions): Promise<GenerateImageResponse> {
+async function generateImageOnce(options: GenerateImageOptions, finalAttempt = true): Promise<GenerateImageResponse> {
   if (!ENV.openRouterApiKey) {
     throw new Error("OPENROUTER_API_KEY is not configured");
   }
@@ -156,8 +158,11 @@ async function generateImageOnce(options: GenerateImageOptions): Promise<Generat
       ? await composeCutout(original, buffer, edit.keyColor, edit.background)
       : await composeCleanup(original, buffer, edit.selectionIndex === undefined ? undefined : references[edit.selectionIndex]?.bytes);
     if (!composed) throw new TransparentCutoutError("Transparent cut-out failed: no clean key background in the generated image");
+    if (!composed.aligned && !finalAttempt) {
+      throw new UnalignedEditError(`Model output could not be aligned (score ${composed.alignment?.score?.toFixed(2)})`);
+    }
     if (!composed.aligned) {
-      console.warn("[iwantphoto edit] model output could not be aligned to the original; using it as returned", {
+      console.warn("[iwantphoto edit] model output could not be aligned to the original after retrying; using it as returned", {
         kind: edit.kind,
         score: composed.alignment?.score,
       });
@@ -179,18 +184,20 @@ async function generateImageOnce(options: GenerateImageOptions): Promise<Generat
   return { url, byteSize: buffer.length, mimeType };
 }
 
-const KEYING_ATTEMPTS = 2;
+const EDIT_ATTEMPTS = 2;
 
 export async function generateImage(options: GenerateImageOptions): Promise<GenerateImageResponse> {
-  if (!options.keyColor && options.inPlace?.kind !== "cutout") return generateImageOnce(options);
-  // Models occasionally ignore the flat-background instruction; one more try usually fixes it.
+  if (!options.keyColor && !options.inPlace) return generateImageOnce(options);
+  // Models occasionally ignore the flat-background instruction or reframe the photo heavily;
+  // a second try usually fixes it. On the last try an unaligned edit is accepted as returned.
   let lastError: unknown;
-  for (let attempt = 0; attempt < KEYING_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < EDIT_ATTEMPTS; attempt++) {
     try {
-      return await generateImageOnce(options);
+      return await generateImageOnce(options, attempt === EDIT_ATTEMPTS - 1);
     } catch (error) {
       lastError = error;
-      if (!(error instanceof TransparentCutoutError)) throw error;
+      if (!(error instanceof TransparentCutoutError) && !(error instanceof UnalignedEditError)) throw error;
+      console.warn("[iwantphoto edit] retrying image edit", { attempt: attempt + 1, reason: (error as Error).message });
     }
   }
   throw lastError;

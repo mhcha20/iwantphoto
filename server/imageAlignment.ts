@@ -19,7 +19,7 @@ type Rgba = { data: Buffer; width: number; height: number };
 
 const MAX_OUTPUT_LONG_SIDE = 2048;
 const MIN_MATCH_SCORE = 0.6;
-const MAX_SAMPLES_PER_LEVEL = 40_000;
+const MAX_SAMPLES_PER_LEVEL = 20_000;
 
 function levelSize(size: ImageSize, longSide: number): ImageSize {
   const factor = longSide / Math.max(size.width, size.height);
@@ -38,6 +38,21 @@ function luminance(image: Rgba): Plane {
     data[i] = 0.299 * image.data[o] + 0.587 * image.data[o + 1] + 0.114 * image.data[o + 2];
   }
   return { data, width: image.width, height: image.height };
+}
+
+/** Edge strength. Matching edges instead of brightness lets the subject's outline count even though the backgrounds differ. */
+function gradientMagnitude(plane: Plane): Plane {
+  const { width, height } = plane;
+  const data = new Float32Array(width * height);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      const gx = plane.data[i + 1] - plane.data[i - 1];
+      const gy = plane.data[i + width] - plane.data[i - width];
+      data[i] = Math.sqrt(gx * gx + gy * gy);
+    }
+  }
+  return { data, width, height };
 }
 
 function alphaPlane(image: Rgba): Plane {
@@ -87,9 +102,11 @@ function matchScore(reference: Plane, generated: Plane, weights: Float32Array, s
   return cov / Math.sqrt(varR * varG);
 }
 
+export type Signal = "luminance" | "gradient";
+
 type Level = { reference: Plane; generated: Plane; weights: Float32Array; samples: Int32Array; totalWeight: number };
 
-function buildLevel(reference: Rgba, generated: Rgba, weights: Float32Array): Level {
+function buildLevel(reference: Rgba, generated: Rgba, weights: Float32Array, maxSamples = MAX_SAMPLES_PER_LEVEL, signal: Signal = "luminance"): Level {
   const indices: number[] = [];
   let totalWeight = 0;
   for (let i = 0; i < weights.length; i++) {
@@ -99,11 +116,12 @@ function buildLevel(reference: Rgba, generated: Rgba, weights: Float32Array): Le
     }
   }
   // Matching every pixel of a large level is slow and adds little; a regular subsample is enough.
-  const stride = Math.max(1, Math.ceil(indices.length / MAX_SAMPLES_PER_LEVEL));
+  const stride = Math.max(1, Math.ceil(indices.length / maxSamples));
   const samples = stride === 1 ? Int32Array.from(indices) : Int32Array.from(indices.filter((_, k) => k % stride === 0));
   let sampledWeight = 0;
   for (let k = 0; k < samples.length; k++) sampledWeight += weights[samples[k]];
-  return { reference: luminance(reference), generated: luminance(generated), weights, samples, totalWeight: sampledWeight };
+  const plane = signal === "gradient" ? (image: Rgba) => gradientMagnitude(luminance(image)) : luminance;
+  return { reference: plane(reference), generated: plane(generated), weights, samples, totalWeight: sampledWeight };
 }
 
 function searchAround(level: Level, center: Similarity, scales: number[], shiftPx: number, stepPx: number) {
@@ -133,30 +151,72 @@ export type WeightFn = (generated: Rgba) => Float32Array;
  * Coarse-to-fine search for the scale/shift that best overlays the generated image on the original.
  * `weightsFor` selects which generated pixels to trust (e.g. the cut-out subject only).
  */
-export async function estimateAlignment(reference: Buffer, generated: Buffer, canvas: ImageSize, weightsFor: WeightFn) {
-  let estimate: Similarity & { score: number } = { scale: 1, dx: 0, dy: 0, score: -2 };
-  const plan = [
-    { longSide: 64, scales: range(0.82, 1.2, 0.02), shift: 0.12, step: 1 },
-    { longSide: 128, scales: [] as number[], shift: 2, step: 1 },
-    { longSide: 256, scales: [] as number[], shift: 1.5, step: 0.5 },
-    { longSide: 512, scales: [] as number[], shift: 1.5, step: 0.5 },
-  ];
-  for (let index = 0; index < plan.length; index++) {
-    const step = plan[index];
-    const size = levelSize(canvas, step.longSide);
-    const [ref, gen] = await Promise.all([readRgba(reference, size), readRgba(generated, size)]);
-    const level = buildLevel(ref, gen, weightsFor(gen));
-    if (level.samples.length < 32) return { ...estimate, score: -1 };
-    if (index === 0) {
-      const shiftPx = Math.round(step.shift * Math.max(size.width, size.height));
-      estimate = searchAround(level, { scale: 1, dx: 0, dy: 0 }, step.scales, shiftPx, step.step);
-    } else {
-      const spread = [0, 0.02, 0.006, 0.003][index];
-      const scales = range(estimate.scale - spread, estimate.scale + spread, spread / 4);
-      estimate = searchAround(level, estimate, scales, step.shift, step.step);
+type Scored = Similarity & { score: number };
+
+/**
+ * Exhaustive coarse pass. Models sometimes reframe heavily (subject shrunk to ~65% and moved a
+ * quarter of the frame), so scales 0.6-1.6 (log-spaced) and shifts up to 30% are tried. Several
+ * distinct good candidates are kept, because at this resolution the true answer is not always first.
+ */
+function coarseCandidates(level: Level, keep: number): Scored[] {
+  const { width, height } = level.generated;
+  const shiftPx = Math.round(0.3 * Math.max(width, height));
+  const all: Scored[] = [];
+  for (let scale = 0.6; scale <= 1.6; scale *= 1.025) {
+    for (let sy = -shiftPx; sy <= shiftPx; sy++) {
+      for (let sx = -shiftPx; sx <= shiftPx; sx++) {
+        const t = { scale, dx: sx / width, dy: sy / height };
+        const score = matchScore(level.reference, level.generated, level.weights, level.samples, level.totalWeight, t);
+        if (score > 0) all.push({ ...t, score });
+      }
     }
   }
-  return estimate;
+  all.sort((a, b) => b.score - a.score);
+  const picked: Scored[] = [];
+  for (const candidate of all) {
+    const distinct = picked.every(
+      (p) => Math.abs(Math.log(p.scale / candidate.scale)) > 0.05 || Math.abs(p.dx - candidate.dx) * width > 3 || Math.abs(p.dy - candidate.dy) * height > 3,
+    );
+    if (distinct) picked.push(candidate);
+    if (picked.length === keep) break;
+  }
+  return picked;
+}
+
+/**
+ * Coarse-to-fine search for the scale/shift that best overlays the generated image on the original.
+ * `weightsFor` selects which generated pixels to trust (e.g. the cut-out subject only).
+ */
+export async function estimateAlignment(reference: Buffer, generated: Buffer, canvas: ImageSize, weightsFor: WeightFn, signal: Signal = "luminance"): Promise<Scored> {
+  const failed = { scale: 1, dx: 0, dy: 0, score: -1 };
+  const loadLevel = async (longSide: number, maxSamples: number) => {
+    const size = levelSize(canvas, longSide);
+    const [ref, gen] = await Promise.all([readRgba(reference, size), readRgba(generated, size)]);
+    return buildLevel(ref, gen, weightsFor(gen), maxSamples, signal);
+  };
+
+  // The wide first pass tries ~60k transforms, so it uses a sparser sample.
+  const coarse = await loadLevel(64, 1_500);
+  if (coarse.samples.length < 32) return failed;
+  const candidates = coarseCandidates(coarse, 4);
+  if (!candidates.length) return failed;
+
+  const refinements = [
+    { level: await loadLevel(128, MAX_SAMPLES_PER_LEVEL), spread: 0.03, shift: 3, step: 1 },
+    { level: await loadLevel(256, MAX_SAMPLES_PER_LEVEL), spread: 0.008, shift: 1.5, step: 0.5 },
+    { level: await loadLevel(512, 20_000), spread: 0.003, shift: 1.5, step: 0.5 },
+  ];
+  let best: Scored = failed;
+  for (const start of candidates) {
+    let estimate: Scored = start;
+    for (const pass of refinements) {
+      if (pass.level.samples.length < 32) return failed;
+      const scales = range(estimate.scale - pass.spread, estimate.scale + pass.spread, pass.spread / 4);
+      estimate = searchAround(pass.level, estimate, scales, pass.shift, pass.step);
+    }
+    if (estimate.score > best.score) best = estimate;
+  }
+  return best;
 }
 
 /** Resamples `source` into the original's frame using the estimated drift. Pixels with no source get alpha 0. */

@@ -118,6 +118,38 @@ describe("OpenRouter image generation", () => {
     expect(alphaAt(box.x + box.w + 6, box.y + 50)).toBe(0);
   });
 
+  it("asks the model again when its first edit cannot be aligned to the original", async () => {
+    const original = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#c9b79c" } })
+      .composite([{ input: await sharp({ create: { width: 90, height: 100, channels: 3, background: "#2b6cb0" } }).png().toBuffer(), left: 105, top: 50 }])
+      .png()
+      .toBuffer();
+    // First answer: an unrelated picture on green. Second answer: the subject where it belongs.
+    const unrelated = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#8fbc78" } })
+      .composite([{ input: await sharp({ create: { width: 20, height: 180, channels: 3, background: "#ff00ff" } }).png().toBuffer(), left: 10, top: 10 }])
+      .png()
+      .toBuffer();
+    const good = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#8fbc78" } })
+      .composite([{ input: await sharp({ create: { width: 90, height: 100, channels: 3, background: "#2b6cb0" } }).png().toBuffer(), left: 105, top: 50 }])
+      .png()
+      .toBuffer();
+    const answers = [unrelated, good];
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ choices: [{ message: { images: [{ image_url: { url: `data:image/png;base64,${answers.shift()!.toString("base64")}` } }] } }] }),
+      { status: 200 },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await generateImage({
+      prompt: "cut out",
+      originalImages: [{ b64Json: original.toString("base64"), mimeType: "image/png" }],
+      inPlace: { kind: "cutout", keyColor: "green", background: "transparent" },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mocks.storagePut).toHaveBeenCalledTimes(1);
+  });
+
   it("fails clearly when the provider returns no image", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: {} }] }), { status: 200 })));
     await expect(generateImage({ prompt: "x" })).rejects.toThrow(/returned no image/);

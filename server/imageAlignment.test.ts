@@ -22,10 +22,10 @@ function scene(options: { withTag: boolean; subjectOnly?: boolean; background?: 
 }
 
 /** Simulates the model's redraw: shrinks 7%, shifts right 3% / up 2%, changes resolution, tints and softens. */
-async function simulateModel(image: Buffer, outWidth: number, fill = "#8fbc78") {
+async function simulateModel(image: Buffer, outWidth: number, fill = "#8fbc78", drift = { scale: 0.93, dx: 0.03, dy: -0.02 }) {
   const raw = await sharp(image).ensureAlpha().raw().toBuffer();
   const outHeight = Math.round((outWidth * H) / W);
-  const drifted = warpToReference({ data: raw, width: W, height: H }, { width: outWidth, height: outHeight }, { scale: 0.93, dx: 0.03, dy: -0.02 });
+  const drifted = warpToReference({ data: raw, width: W, height: H }, { width: outWidth, height: outHeight }, drift);
   return sharp(drifted.data, { raw: { width: outWidth, height: outHeight, channels: 4 } })
     .flatten({ background: fill })
     .modulate({ brightness: 1.04 })
@@ -66,6 +66,17 @@ describe("composeCutout", () => {
     const originalRaw = await sharp(original).ensureAlpha().raw().toBuffer();
     const centre = ((SUBJECT.y + 100) * W + SUBJECT.x + 150) * 4;
     expect([data[centre], data[centre + 1], data[centre + 2]]).toEqual([originalRaw[centre], originalRaw[centre + 1], originalRaw[centre + 2]]);
+  });
+
+  it("recovers a large reframe (subject shrunk to 68% and pushed down-right)", async () => {
+    const original = await scene({ withTag: true });
+    const generated = await simulateModel(await scene({ withTag: false, subjectOnly: true, background: "#8fbc78" }), 1024, "#8fbc78", { scale: 0.68, dx: 0.12, dy: 0.15 });
+    const result = await composeCutout(original, generated, "green", "transparent");
+    expect(result?.aligned).toBe(true);
+    // The model drew the subject small (less detail), so allow 2% on scale and 1% of the frame on shift.
+    expect(Math.abs(result!.alignment!.scale - 1 / 0.68) / (1 / 0.68)).toBeLessThan(0.02);
+    expect(Math.abs(result!.alignment!.dx - -0.12 / 0.68)).toBeLessThan(0.01);
+    expect(Math.abs(result!.alignment!.dy - -0.15 / 0.68)).toBeLessThan(0.01);
   });
 
   it("keeps real holes (like the space inside a bag handle) transparent", async () => {

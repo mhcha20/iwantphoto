@@ -134,7 +134,7 @@ async function verifyImages() {
 
   const runEdit = (name: string, file: string, options: Parameters<typeof generateImage>[0], expectAlpha: boolean) =>
     check(name, async () => {
-      const { url } = await generateImage({ ...options, originalImages: [reference], matchReferenceCanvas: true });
+      const { url } = await generateImage({ ...options, originalImages: [reference] });
       if (!url) throw new Error("no image url returned");
       const { key, bytes } = await loadStored(url);
       await storageDelete(key).catch(() => undefined);
@@ -145,23 +145,25 @@ async function verifyImages() {
       return `${meta.width}x${meta.height}${meta.hasAlpha ? " with alpha" : ""} → verify-output/${file}`;
     });
 
+  // Same path as the editor: the model marks the subject on a key colour, the cut-out uses the original pixels.
+  const keyColor = await pickKeyColor(photo);
+  const cutoutPrompt = `Isolate only the blue mug on ${KEY_COLOR_PROMPT[keyColor]}. Preserve the mug's position, scale, label text and the original canvas size and aspect ratio.`;
   await runEdit(
     `image: white background (${ENV.openRouterImageModel})`,
     "1-white-background.png",
-    { prompt: "Remove the whole background and place only the blue mug on a pure white studio background. Preserve the mug's position, scale, label text and the original canvas size and aspect ratio." },
+    { prompt: cutoutPrompt, inPlace: { kind: "cutout", keyColor, background: "white" } },
     false,
   );
-  const keyColor = await pickKeyColor(photo);
   await runEdit(
-    "image: transparent cut-out (key colour → alpha)",
+    "image: transparent cut-out (key colour → alpha, original pixels)",
     "2-transparent.png",
-    { prompt: `Isolate only the blue mug on ${KEY_COLOR_PROMPT[keyColor]}. Preserve the mug's position, scale, label text and the original canvas size and aspect ratio.`, keyColor },
+    { prompt: cutoutPrompt, inPlace: { kind: "cutout", keyColor, background: "transparent" } },
     true,
   );
   await runEdit(
     "image: remove object (price tag)",
     "3-remove-object.png",
-    { prompt: "Remove only the yellow SALE $9 price tag and fill the area naturally from the surrounding wall. Keep everything else unchanged, including canvas size and aspect ratio." },
+    { prompt: "Remove only the yellow SALE $9 price tag and fill the area naturally from the surrounding wall. Keep everything else unchanged, including canvas size and aspect ratio.", inPlace: { kind: "cleanup" } },
     false,
   );
   await check(`image: fallback model reachable (${ENV.openRouterImageFallbackModel})`, async () => {

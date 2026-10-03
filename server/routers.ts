@@ -4,6 +4,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { generateImage } from "./_core/imageGeneration";
+import { UnalignedEditError } from "./_core/imageEditErrors";
 import { KEY_COLOR_PROMPT, pickKeyColor } from "./imagePostProcess";
 import { generateMarketplaceImage, getMarketplaceImageGenerationDiagnostic, getMarketplaceImageRecoveryMessage } from "./marketplaceImageGeneration";
 import { inspectMarketplaceCompositionFromUrl } from "./marketplaceCompositionQuality";
@@ -839,6 +840,9 @@ export const appRouter = router({
           }
           if (error instanceof TRPCError) throw error;
           console.error("[iwantphoto editor] image processing failed", error);
+          if (error instanceof UnalignedEditError) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "處理失敗，請重試。AI 未能準確對齊原圖位置，這次不會扣除額度。" });
+          }
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 修圖服務暫時繁忙，請稍後再試。" });
         }
       }),

@@ -119,19 +119,19 @@ describe("OpenRouter image generation", () => {
   });
 
   it("asks the model again when its first edit cannot be aligned to the original", async () => {
-    const original = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#c9b79c" } })
-      .composite([{ input: await sharp({ create: { width: 90, height: 100, channels: 3, background: "#2b6cb0" } }).png().toBuffer(), left: 105, top: 50 }])
-      .png()
-      .toBuffer();
+    // A textured subject (stripes), as real products are; a flat colour gives nothing to match.
+    const subject = (background: string) =>
+      sharp(Buffer.from(`<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg"><rect width="300" height="200" fill="${background}"/>
+        <rect x="105" y="50" width="90" height="100" fill="#2b6cb0"/>
+        <rect x="112" y="65" width="76" height="10" fill="#f6ad55"/><rect x="112" y="95" width="76" height="10" fill="#e2e8f0"/>
+        <rect x="112" y="125" width="76" height="10" fill="#fc8181"/></svg>`)).png().toBuffer();
+    const original = await subject("#c9b79c");
     // First answer: an unrelated picture on green. Second answer: the subject where it belongs.
     const unrelated = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#8fbc78" } })
       .composite([{ input: await sharp({ create: { width: 20, height: 180, channels: 3, background: "#ff00ff" } }).png().toBuffer(), left: 10, top: 10 }])
       .png()
       .toBuffer();
-    const good = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#8fbc78" } })
-      .composite([{ input: await sharp({ create: { width: 90, height: 100, channels: 3, background: "#2b6cb0" } }).png().toBuffer(), left: 105, top: 50 }])
-      .png()
-      .toBuffer();
+    const good = await subject("#8fbc78");
     const answers = [unrelated, good];
     const fetchMock = vi.fn(async () => new Response(
       JSON.stringify({ choices: [{ message: { images: [{ image_url: { url: `data:image/png;base64,${answers.shift()!.toString("base64")}` } }] } }] }),
@@ -148,6 +148,32 @@ describe("OpenRouter image generation", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(mocks.storagePut).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails (and stores nothing) when no attempt can be aligned, instead of shipping a misplaced edit", async () => {
+    const original = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#c9b79c" } })
+      .composite([{ input: await sharp({ create: { width: 90, height: 100, channels: 3, background: "#2b6cb0" } }).png().toBuffer(), left: 105, top: 50 }])
+      .png()
+      .toBuffer();
+    const unrelated = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#8fbc78" } })
+      .composite([{ input: await sharp({ create: { width: 20, height: 180, channels: 3, background: "#ff00ff" } }).png().toBuffer(), left: 10, top: 10 }])
+      .png()
+      .toBuffer();
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ choices: [{ message: { images: [{ image_url: { url: `data:image/png;base64,${unrelated.toString("base64")}` } }] } }] }),
+      { status: 200 },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { UnalignedEditError } = await import("./_core/imageEditErrors");
+
+    await expect(generateImage({
+      prompt: "cut out",
+      originalImages: [{ b64Json: original.toString("base64"), mimeType: "image/png" }],
+      inPlace: { kind: "cutout", keyColor: "green", background: "transparent" },
+    })).rejects.toBeInstanceOf(UnalignedEditError);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mocks.storagePut).not.toHaveBeenCalled();
   });
 
   it("fails clearly when the provider returns no image", async () => {

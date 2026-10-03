@@ -20,6 +20,8 @@ type Rgba = { data: Buffer; width: number; height: number };
 const MAX_OUTPUT_LONG_SIDE = 2048;
 const MIN_MATCH_SCORE = 0.6;
 const MAX_SAMPLES_PER_LEVEL = 20_000;
+/** Enclosed holes under this share of the canvas are treated as specks the model got wrong, not real holes. */
+const SMALL_HOLE_SHARE = 0.0025;
 
 function levelSize(size: ImageSize, longSide: number): ImageSize {
   const factor = longSide / Math.max(size.width, size.height);
@@ -280,7 +282,10 @@ export async function composeCutout(reference: Buffer, generated: Buffer, key: K
     // transparency: a muted key colour close to the subject (pinkish magenta vs. skin) would
     // otherwise leave the subject see-through. Harden it to a solid mask with a ~1px soft edge.
     const solid = Buffer.alloc(canvas.width * canvas.height);
-    for (let i = 0; i < solid.length; i++) solid[i] = warped.data[i * 4 + 3] >= 128 ? 255 : 0;
+    const subject = new Uint8Array(solid.length);
+    for (let i = 0; i < subject.length; i++) subject[i] = warped.data[i * 4 + 3] >= 128 ? 1 : 0;
+    fillSmallEnclosedHoles(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_HOLE_SHARE));
+    for (let i = 0; i < solid.length; i++) solid[i] = subject[i] ? 255 : 0;
     const alpha = await sharp(solid, { raw: { width: canvas.width, height: canvas.height, channels: 1 } })
       .blur(0.8)
       .extractChannel(0)
@@ -336,6 +341,36 @@ function sealHairlineGaps(rgba: Rgba, radius = 2) {
   for (let i = 0; i < solid.length; i++) solid[i] = rgba.data[i * 4 + 3] >= 128 ? 1 : 0;
   const closed = erode(dilate(solid, width, height, radius), width, height, radius);
   for (let i = 0; i < solid.length; i++) if (closed[i] && !solid[i]) rgba.data[i * 4 + 3] = 255;
+}
+
+/**
+ * Fills enclosed holes smaller than `maxArea` pixels. Models sometimes paint small light parts of the
+ * subject (white artwork on a bag, teeth on a printed mascot) in the background colour; those show up
+ * as specks fully surrounded by subject. Larger enclosed holes, such as the space inside a bag handle,
+ * are real and stay transparent. Holes touching the image border are never filled.
+ */
+function fillSmallEnclosedHoles(solid: Uint8Array, width: number, height: number, maxArea: number) {
+  const seen = new Uint8Array(solid.length);
+  const queue = new Int32Array(solid.length);
+  for (let start = 0; start < solid.length; start++) {
+    if (solid[start] || seen[start]) continue;
+    let head = 0, tail = 0, touchesBorder = false;
+    queue[tail++] = start;
+    seen[start] = 1;
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % width, y = (i - x) / width;
+      if (x === 0 || y === 0 || x === width - 1 || y === height - 1) touchesBorder = true;
+      const neighbours = [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, y > 0 ? i - width : -1, y < height - 1 ? i + width : -1];
+      for (const n of neighbours) {
+        if (n >= 0 && !solid[n] && !seen[n]) {
+          seen[n] = 1;
+          queue[tail++] = n;
+        }
+      }
+    }
+    if (!touchesBorder && tail <= maxArea) for (let k = 0; k < tail; k++) solid[queue[k]] = 1;
+  }
 }
 
 /** Per-channel gain/offset that makes `image` match `target` over the selected pixels (undoes the model's colour drift). */

@@ -1150,6 +1150,23 @@ describe("editor.process", () => {
     expect(mocks.refundPrepaidCredit).toHaveBeenCalledWith(42);
   });
 
+  it("reports a retryable failure without charging when the AI edit cannot be aligned to the original", async () => {
+    const { UnalignedEditError } = await import("./_core/imageEditErrors");
+    const caller = appRouter.createCaller({
+      ...createAuthenticatedContext(),
+      user: { ...createAuthenticatedContext().user!, creditBalance: 8 },
+    });
+    mocks.countUserProcessingUsageSince.mockResolvedValue(10);
+    mocks.spendPrepaidCredit.mockResolvedValue({ spent: true, balance: 7 });
+    mocks.generateImage.mockRejectedValueOnce(new UnalignedEditError("Model output could not be aligned (score 0.47)"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(caller.editor.process({ imageData: sampleData, fileName: "unaligned.jpg", mimeType: "image/jpeg", mode: "background", backgroundStyle: "transparent" }))
+      .rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR", message: expect.stringContaining("處理失敗，請重試") });
+    expect(mocks.refundPrepaidCredit).toHaveBeenCalledWith(42);
+    expect(mocks.recordProcessingUsage).not.toHaveBeenCalled();
+  });
+
   it("returns only safe subscription status metadata to an authenticated account", async () => {
     const caller = appRouter.createCaller(createAuthenticatedContext());
 

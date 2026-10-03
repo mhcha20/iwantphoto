@@ -124,6 +124,24 @@ describe("composeCutout", () => {
     expect(recoloured).toBe(0);
   });
 
+  it("fills small specks the model wrongly treated as background inside the subject (e.g. white artwork on a bag)", async () => {
+    const speck = { x: 560, y: 420, w: 30, h: 22 };
+    const draw = (background: string, speckFill: string) =>
+      sharp(Buffer.from(`<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" fill="${background}"/>
+        <rect x="${SUBJECT.x}" y="${SUBJECT.y}" width="${SUBJECT.w}" height="${SUBJECT.h}" fill="#e0c030"/>
+        <rect x="${SUBJECT.x + 20}" y="${SUBJECT.y + 40}" width="${SUBJECT.w - 40}" height="30" fill="#2b6cb0"/>
+        <rect x="${speck.x}" y="${speck.y}" width="${speck.w}" height="${speck.h}" fill="${speckFill}"/></svg>`)).png().toBuffer();
+    // The original has white artwork; the model painted that spot in the key colour.
+    const original = await draw("#c9b79c", "#ffffff");
+    const generated = await simulateModel(await draw("#8fbc78", "#8fbc78"), 1024);
+    const result = await composeCutout(original, generated, "green", "transparent");
+    expect(result?.aligned).toBe(true);
+    const { data } = await sharp(result!.buffer).raw().toBuffer({ resolveWithObject: true });
+    const centre = ((speck.y + speck.h / 2) * W + speck.x + speck.w / 2) * 4;
+    expect(data[centre + 3]).toBe(255);
+    expect([data[centre], data[centre + 1], data[centre + 2]]).toEqual([255, 255, 255]);
+  });
+
   it("flattens onto white for the white-background style", async () => {
     const original = await scene({ withTag: true });
     const generated = await simulateModel(await scene({ withTag: false, subjectOnly: true, background: "#8fbc78" }), 1024);

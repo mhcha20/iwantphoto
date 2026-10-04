@@ -338,8 +338,9 @@ export function uncertainRegions(probability: Uint8Array, width: number, height:
 
 /**
  * Background removal from a pixel-accurate segmentation of the original. Where the segmentation is
- * genuinely unsure, the aligned model cut-out (if any) decides; everywhere else, including every
- * edge, the segmentation decides, so outlines follow the real photo exactly.
+ * genuinely unsure, the aligned model cut-out (if any) decides; solid parts the model adds next to the
+ * subject are kept too. Everywhere else, including every edge, the segmentation decides, so outlines
+ * follow the real photo exactly.
  */
 export async function composeSegmentedCutout(
   reference: Buffer,
@@ -349,12 +350,54 @@ export async function composeSegmentedCutout(
   modelSubject: Uint8Array | null,
   background: "transparent" | "white",
 ) {
+  const { width, height } = canvas;
   const subject = new Uint8Array(probability.length);
   for (let i = 0; i < subject.length; i++) {
     subject[i] = unsure[i] && modelSubject ? modelSubject[i] : probability[i] >= 128 ? 1 : 0;
   }
+  if (modelSubject) {
+    const extra = attachedModelAdditions(subject, modelSubject, width, height);
+    for (let i = 0; i < subject.length; i++) if (extra[i]) subject[i] = 1;
+  }
   removeSmallIslands(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_ISLAND_SHARE));
   return renderCutout(reference, canvas, subject, background);
+}
+
+/**
+ * Parts of the subject the segmentation confidently missed (e.g. the crumpled top of a brown paper
+ * bag it scored as background) but the aligned model cut-out includes. Only solid areas survive (the
+ * thin drift band along every outline is removed by an opening), and only those touching the subject:
+ * a detached blob the model drew elsewhere is more likely background than a missed part.
+ */
+function attachedModelAdditions(subject: Uint8Array, modelSubject: Uint8Array, width: number, height: number): Uint8Array {
+  const radius = Math.max(2, Math.round(Math.max(width, height) / 200));
+  const candidate = new Uint8Array(subject.length);
+  for (let i = 0; i < candidate.length; i++) candidate[i] = modelSubject[i] && !subject[i] ? 1 : 0;
+  const solid = dilate(erode(candidate, width, height, radius), width, height, radius);
+  const near = dilate(subject, width, height, radius + 1);
+  const result = new Uint8Array(subject.length);
+  const queue = new Int32Array(subject.length);
+  const seen = new Uint8Array(subject.length);
+  for (let start = 0; start < solid.length; start++) {
+    if (!solid[start] || seen[start]) continue;
+    let head = 0, tail = 0, touches = false;
+    queue[tail++] = start;
+    seen[start] = 1;
+    while (head < tail) {
+      const i = queue[head++];
+      if (near[i]) touches = true;
+      const x = i % width, y = (i - x) / width;
+      const neighbours = [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, y > 0 ? i - width : -1, y < height - 1 ? i + width : -1];
+      for (const n of neighbours) {
+        if (n >= 0 && solid[n] && !seen[n]) {
+          seen[n] = 1;
+          queue[tail++] = n;
+        }
+      }
+    }
+    if (touches) for (let k = 0; k < tail; k++) result[queue[k]] = candidate[queue[k]];
+  }
+  return result;
 }
 
 function dilate(mask: Uint8Array, width: number, height: number, radius: number): Uint8Array {

@@ -236,4 +236,25 @@ describe("segmentation helpers", () => {
     expect(alphaAt(950, 150)).toBe(0); // segmentation is sure it's background
     expect(alphaAt(SUBJECT.x + 50, SUBJECT.y + 50)).toBe(255);
   });
+  it("keeps a solid part the segmentation missed when the model attaches it to the subject", async () => {
+    const original = await scene({ withTag: false });
+    const canvas = { width: W, height: H };
+    const probability = new Uint8Array(W * H);
+    const model = new Uint8Array(W * H);
+    const right = SUBJECT.x + SUBJECT.w;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      const inSubject = x >= SUBJECT.x && x < right && y >= SUBJECT.y && y < SUBJECT.y + SUBJECT.h;
+      if (inSubject) probability[i] = 250;
+      // The model's outline drifts 3px wider everywhere, and it includes a 60px-wide part right of
+      // the subject that the segmentation confidently scored as background.
+      if (x >= SUBJECT.x - 3 && x < right + 3 && y >= SUBJECT.y - 3 && y < SUBJECT.y + SUBJECT.h + 3) model[i] = 1;
+      if (x >= right && x < right + 60 && y >= SUBJECT.y + 20 && y < SUBJECT.y + 120) model[i] = 1;
+    }
+    const png = await composeSegmentedCutout(original, canvas, probability, new Uint8Array(W * H), model, "transparent");
+    const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+    const alphaAt = (x: number, y: number) => data[(y * W + x) * 4 + 3];
+    expect(alphaAt(right + 30, SUBJECT.y + 70)).toBe(255); // the missed part is restored
+    expect(alphaAt(SUBJECT.x - 2, SUBJECT.y + 150)).toBe(0); // the drift band is not
+  });
 });

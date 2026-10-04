@@ -369,7 +369,8 @@ const MIN_SEGMENTED_HOLE_SHARE = 0.0001;
 
 /**
  * Background the segmentation confidently sees through the subject, such as the wall between a bag's
- * handles. These stay transparent even when the model cut-out or hole filling would close them.
+ * handles, including its lower-confidence fringe. These stay transparent even when the model cut-out
+ * or hole filling would close them.
  */
 function segmentedHoles(probability: Uint8Array, width: number, height: number): Uint8Array {
   const holes = new Uint8Array(probability.length);
@@ -394,7 +395,13 @@ function segmentedHoles(probability: Uint8Array, width: number, height: number):
       }
     }
     if (touchesBorder || tail < minArea) continue;
-    for (let k = 0; k < tail; k++) if (probability[queue[k]] <= CONFIDENT_BACKGROUND) holes[queue[k]] = 1;
+    // A real see-through gap is mostly confident background; its fringe (wall right next to a
+    // handle) is scored lower-confidence but belongs to the same gap. Mostly-unsure enclosed areas
+    // are left to the model.
+    let confident = 0;
+    for (let k = 0; k < tail; k++) if (probability[queue[k]] <= CONFIDENT_BACKGROUND) confident++;
+    if (confident * 2 < tail) continue;
+    for (let k = 0; k < tail; k++) holes[queue[k]] = 1;
   }
   return holes;
 }

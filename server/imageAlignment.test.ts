@@ -270,12 +270,15 @@ describe("segmentation helpers", () => {
       const inRing = x >= gap.x - 12 && x < gap.x + gap.w + 12 && y >= gap.y - 12 && y < SUBJECT.y;
       const inGap = x >= gap.x && x < gap.x + gap.w && y >= gap.y && y < gap.y + gap.h;
       if (inSubject || (inRing && !inGap)) probability[i] = 250;
+      // A 10px fringe of wall next to the handle that the segmentation is less sure about.
+      else if (inGap && x < gap.x + 10) probability[i] = 90;
       if (inSubject || inRing) model[i] = 1; // the model paints the gap as part of the bag
     }
     const png = await composeSegmentedCutout(original, canvas, probability, new Uint8Array(W * H), model, "transparent");
     const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
     const alphaAt = (x: number, y: number) => data[(y * W + x) * 4 + 3];
     expect(alphaAt(gap.x + 30, gap.y + 25)).toBe(0);
+    expect(alphaAt(gap.x + 5, gap.y + 25)).toBe(0);
     expect(alphaAt(gap.x - 6, gap.y + 25)).toBe(255);
   });
 });

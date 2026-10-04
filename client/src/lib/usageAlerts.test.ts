@@ -14,4 +14,11 @@ describe("usage allowance alerts", () => {
   it("stops offering an unavailable upgrade at the business limit", () => {
     expect(getUsageAlert(750, 750, "business")).toMatchObject({ level: "limit", shouldSuggestUpgrade: false });
   });
+
+  it("counts one-time credits instead of reporting the allowance as used up", () => {
+    expect(getUsageAlert(10, 10, "starter", 25)).toMatchObject({ level: "notice", title: "本月月費額度已用完", shouldSuggestUpgrade: false });
+    expect(getUsageAlert(10, 10, "starter", 25).description).toContain("25");
+    expect(getUsageAlert(9, 10, "starter", 25).level).toBe("none");
+    expect(getUsageAlert(10, 10, "starter", 0).level).toBe("limit");
+  });
 });

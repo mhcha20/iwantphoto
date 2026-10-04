@@ -8,12 +8,18 @@ export type UsageAlert = {
   shouldSuggestUpgrade: boolean;
 };
 
-export function getUsageAlert(used: number, allowance: number, plan: AccountPlan): UsageAlert {
+export function getUsageAlert(used: number, allowance: number, plan: AccountPlan, creditBalance = 0): UsageAlert {
   const safeAllowance = Math.max(1, allowance);
   const percentage = Math.min(100, Math.max(0, Math.round((Math.max(0, used) / safeAllowance) * 100)));
   const remaining = Math.max(0, safeAllowance - Math.max(0, used));
   const planName = plan === "starter" ? "Starter" : plan === "pro" ? "Pro" : "Business";
 
+  const credits = Math.max(0, Math.floor(creditBalance));
+  if (credits > 0) {
+    // One-time credits are used automatically once the monthly allowance runs out.
+    if (percentage >= 100) return { level: "notice", percentage, title: "本月月費額度已用完", description: `正在使用一次性加購額度，尚餘 ${credits} 張。`, shouldSuggestUpgrade: false };
+    return { level: "none", percentage, title: "", description: "", shouldSuggestUpgrade: false };
+  }
   if (percentage >= 100) {
     return { level: "limit", percentage, title: "本月額度已用完", description: `${planName} 方案本月 ${safeAllowance} 張處理額度已用完；升級後即可繼續處理。`, shouldSuggestUpgrade: plan !== "business" };
   }

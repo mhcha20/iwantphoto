@@ -251,12 +251,14 @@ export default function Home() {
   const accountPlan = (usageQuery.data?.plan ?? user?.plan ?? "starter") as AccountPlan;
   const adminTestModeActive = user?.role === "admin" && Boolean(user.adminTestPlan);
   const usage = getMonthlyImageUsage(usageQuery.data?.used ?? 0, usageQuery.data?.allowance ?? ACCOUNT_PLANS[accountPlan].allowance);
-  const mobileAccountMenuItems = getMobileAccountMenuItems(ACCOUNT_PLANS[accountPlan].name, usage.remaining);
+  const creditBalance = usageQuery.data?.creditBalance ?? billingStatusQuery.data?.creditBalance ?? user?.creditBalance ?? 0;
+  // What the user can still process: the monthly allowance first, then one-time credits.
+  const totalRemaining = usage.remaining + Math.max(0, creditBalance);
+  const mobileAccountMenuItems = getMobileAccountMenuItems(ACCOUNT_PLANS[accountPlan].name, totalRemaining);
   const mobileAccountIdentity = getMobileAccountIdentity(user?.displayName || user?.name, user?.email);
   const accountSecurityActivities = (accountSecurityEventsQuery.data ?? []) as AccountSecurityActivity[];
-  const usageAlert = getUsageAlert(usage.used, usage.allowance, accountPlan);
+  const usageAlert = getUsageAlert(usage.used, usage.allowance, accountPlan, creditBalance);
   const billingEnabled = Boolean(billingStatusQuery.data?.billingEnabled);
-  const creditBalance = usageQuery.data?.creditBalance ?? billingStatusQuery.data?.creditBalance ?? user?.creditBalance ?? 0;
   const storage = (usageQuery.data?.storage ?? {
     usedBytes: 0,
     allowanceBytes: storageAllowanceBytes(accountPlan, user?.storageAddonGb ?? 0),
@@ -1592,7 +1594,7 @@ export default function Home() {
                 </DropdownMenu>
               </div>
               <Button variant="outline" onClick={() => setLibraryOpen(true)} className="hidden h-10 rounded-xl border-[#bfd3ee] bg-white px-3 text-xs font-bold text-[#1665d8] hover:bg-[#eaf2ff] sm:inline-flex"><Images size={15} />我的相片</Button>
-              <Button variant="outline" onClick={openPlans} className="hidden h-10 rounded-xl border-[#d9e3ef] bg-white px-3 text-xs font-bold text-[#405c7d] hover:bg-[#f3f7fc] lg:inline-flex"><CreditCard size={15} />{ACCOUNT_PLANS[accountPlan].name} · {usage.remaining}</Button>
+              <Button variant="outline" onClick={openPlans} className="hidden h-10 rounded-xl border-[#d9e3ef] bg-white px-3 text-xs font-bold text-[#405c7d] hover:bg-[#f3f7fc] lg:inline-flex"><CreditCard size={15} />{ACCOUNT_PLANS[accountPlan].name} · {totalRemaining}</Button>
               <Button variant="outline" size="icon" onClick={() => setAccountProfileOpen(true)} aria-label="管理帳戶資料" className="hidden h-10 w-10 rounded-xl border-[#bfd3ee] bg-white text-[#1665d8] hover:bg-[#eaf2ff] sm:inline-flex">{user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" /> : <span className="grid h-7 w-7 place-items-center rounded-full bg-[#ddebff] text-[11px] font-extrabold tracking-[-0.04em] text-[#125db9]">{mobileAccountIdentity.initials}</span>}</Button>
               <Button variant="ghost" onClick={() => void logout()} className="hidden h-10 rounded-xl px-3 text-xs font-bold text-[#64758c] hover:bg-white sm:inline">登出</Button>
             </> : <Button variant="outline" onClick={startLogin} className="h-10 rounded-xl border-[#bfd3ee] bg-white px-3 text-xs font-bold text-[#1665d8] hover:bg-[#eaf2ff]"><UserRound size={15} /><span className="hidden sm:inline">登入安全儲存</span></Button>)}
@@ -1638,7 +1640,7 @@ export default function Home() {
 
         <section id="editor" className="scroll-mt-20 bg-[#eef3f8] py-8 sm:py-10">
           <div className="container">
-            <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><span className="text-[11px] font-bold tracking-[.15em] text-[#1665d8]">AI IMAGE WORKSPACE</span><h2 className="mt-1 text-2xl font-semibold tracking-[-.045em] text-[#10213b] sm:text-3xl">開始處理商業相片。</h2></div><div className="max-w-sm"><p className="text-sm leading-6 text-[#627188]">完成後可下載或直接分享圖片檔。</p>{isAuthenticated ? <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1"><button type="button" onClick={() => setLibraryOpen(true)} className="flex items-center gap-1.5 text-xs font-bold text-[#168464] hover:text-[#0d7052]"><ShieldCheck size={14} />已登入 · 自動儲存</button><button type="button" onClick={openPlans} className="flex items-center gap-1.5 text-xs font-bold text-[#1665d8] hover:text-[#0d56bd]"><CreditCard size={14} />尚餘 {usage.remaining} 張</button></div> : !authLoading && <button type="button" onClick={startLogin} className="mt-1 flex max-w-sm items-center gap-1.5 text-left text-xs font-bold text-[#1665d8] hover:text-[#0d56bd]"><ShieldCheck size={14} />登入後可自動儲存相片。</button>}</div></div>
+            <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><span className="text-[11px] font-bold tracking-[.15em] text-[#1665d8]">AI IMAGE WORKSPACE</span><h2 className="mt-1 text-2xl font-semibold tracking-[-.045em] text-[#10213b] sm:text-3xl">開始處理商業相片。</h2></div><div className="max-w-sm"><p className="text-sm leading-6 text-[#627188]">完成後可下載或直接分享圖片檔。</p>{isAuthenticated ? <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1"><button type="button" onClick={() => setLibraryOpen(true)} className="flex items-center gap-1.5 text-xs font-bold text-[#168464] hover:text-[#0d7052]"><ShieldCheck size={14} />已登入 · 自動儲存</button><button type="button" onClick={openPlans} className="flex items-center gap-1.5 text-xs font-bold text-[#1665d8] hover:text-[#0d56bd]"><CreditCard size={14} />尚餘 {totalRemaining} 張</button></div> : !authLoading && <button type="button" onClick={startLogin} className="mt-1 flex max-w-sm items-center gap-1.5 text-left text-xs font-bold text-[#1665d8] hover:text-[#0d56bd]"><ShieldCheck size={14} />登入後可自動儲存相片。</button>}</div></div>
 
             <div className="editor-shell overflow-hidden rounded-[24px] border border-[#d7e1ed] bg-white shadow-[0_18px_50px_rgba(42,65,93,.11)]">
               <div className="flex items-center gap-2 border-b border-[#e4ebf3] bg-[#f9fbfe] px-4 py-3 sm:px-5"><span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e7f0ff] text-[#1665d8]"><LayoutGrid size={15} /></span><span className="text-xs font-bold text-[#36475e]">圖片工作區</span><span className="hidden text-xs text-[#74839a] sm:inline">· 處理與交付集中管理</span><div className="ml-auto flex items-center gap-2">{hasImage && <span className="hidden items-center gap-1.5 text-xs font-bold text-[#168464] sm:flex"><span className="h-1.5 w-1.5 rounded-full bg-[#22b789]" />已載入 {images.length} 張</span>}<button type="button" onClick={() => setMarketplaceOpen(true)} className="hidden h-8 items-center gap-1.5 rounded-lg border border-[#c9dfd3] bg-white px-2.5 text-xs font-bold text-[#197250] shadow-sm transition hover:bg-[#f1fbf6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#197250] focus-visible:ring-offset-1 sm:inline-flex"><Sparkles size={14} />商品套組</button><button type="button" onClick={() => setDesktopSettingsPanel((state) => toggleDesktopSettingsPanel(state))} className="hidden h-8 items-center gap-1.5 rounded-lg border border-[#c8d9ed] bg-white px-2.5 text-xs font-bold text-[#1665d8] shadow-sm transition hover:bg-[#eaf2ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1665d8] focus-visible:ring-offset-1 lg:inline-flex" aria-label={desktopSettingsCopy.description} title={desktopSettingsCopy.description}>{desktopSettingsPanel === "expanded" ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />} {desktopSettingsCopy.label}</button></div></div>
@@ -1857,6 +1859,7 @@ export default function Home() {
         plan={accountPlan}
         used={usage.used}
         allowance={usage.allowance}
+        creditBalance={creditBalance}
         processingTimeline={processingTimeline}
         processingTimelineLoading={usageTimelineQuery.isLoading}
         processingTimelineError={usageTimelineQuery.isError}
@@ -1891,7 +1894,7 @@ export default function Home() {
           </DialogHeader>
           <div className={PLAN_DIALOG_SCROLL_BODY_CLASS}>
 	            <div className="rounded-2xl border border-[#d7e6f5] bg-white p-4">
-	              <div className="flex items-center justify-between gap-3"><div><span className="text-[11px] font-bold tracking-[.1em] text-[#728198]">目前方案</span><strong className="mt-1 block text-xl text-[#10213b]">{ACCOUNT_PLANS[accountPlan].name}</strong></div><span className="rounded-full bg-[#e7f0ff] px-3 py-1.5 text-xs font-bold text-[#1665d8]">{usage.remaining} 張可用</span></div>
+	              <div className="flex items-center justify-between gap-3"><div><span className="text-[11px] font-bold tracking-[.1em] text-[#728198]">目前方案</span><strong className="mt-1 block text-xl text-[#10213b]">{ACCOUNT_PLANS[accountPlan].name}</strong></div><span className="rounded-full bg-[#e7f0ff] px-3 py-1.5 text-xs font-bold text-[#1665d8]">{totalRemaining} 張可用</span></div>
 	              <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#edf2f7]"><div className="h-full rounded-full bg-[#1665d8]" style={{ width: usage.percentage + "%" }} /></div>
 	              <p className="mt-2 text-xs text-[#64758c]">本月已完成 {usage.used}/{usage.allowance} 張。</p>
 	            </div>

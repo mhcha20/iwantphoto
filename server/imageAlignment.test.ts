@@ -281,4 +281,26 @@ describe("segmentation helpers", () => {
     expect(alphaAt(gap.x + 5, gap.y + 25)).toBe(0);
     expect(alphaAt(gap.x - 6, gap.y + 25)).toBe(255);
   });
+  it("clears a less certain gap where it shows the same colour as its confident part", async () => {
+    const original = await scene({ withTag: false });
+    const canvas = { width: W, height: H };
+    const probability = new Uint8Array(W * H);
+    const model = new Uint8Array(W * H);
+    const gap = { x: SUBJECT.x + 100, y: SUBJECT.y - 62, w: 60, h: 50 };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      const inSubject = x >= SUBJECT.x && x < SUBJECT.x + SUBJECT.w && y >= SUBJECT.y && y < SUBJECT.y + SUBJECT.h;
+      const inRing = x >= gap.x - 12 && x < gap.x + gap.w + 12 && y >= gap.y - 12 && y < SUBJECT.y;
+      const inGap = x >= gap.x && x < gap.x + gap.w && y >= gap.y && y < gap.y + gap.h;
+      if (inSubject || (inRing && !inGap)) probability[i] = 250;
+      // Only the left third of the gap is confident; the rest is the same wall scored as unsure.
+      else if (inGap) probability[i] = x < gap.x + 20 ? 10 : 90;
+      if (inSubject || inRing) model[i] = 1;
+    }
+    const png = await composeSegmentedCutout(original, canvas, probability, new Uint8Array(W * H), model, "transparent");
+    const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+    const alphaAt = (x: number, y: number) => data[(y * W + x) * 4 + 3];
+    expect(alphaAt(gap.x + 45, gap.y + 25)).toBe(0); // unsure, but the same colour as the confident wall
+    expect(alphaAt(gap.x - 6, gap.y + 25)).toBe(255);
+  });
 });

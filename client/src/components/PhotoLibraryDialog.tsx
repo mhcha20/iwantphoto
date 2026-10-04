@@ -38,6 +38,7 @@ type PhotoLibraryDialogProps = {
   plan: AccountPlan;
   used: number;
   allowance: number;
+  creditBalance?: number;
   processingTimeline: ProcessingTimelineEvent[];
   processingTimelineLoading: boolean;
   processingTimelineError: boolean;
@@ -62,7 +63,7 @@ type PhotoLibraryDialogProps = {
   onStartWork: () => void;
 };
 
-export function PhotoLibraryDialog({ open, onOpenChange, userName, records, projects, isLoading, isError, plan, used, allowance, processingTimeline, processingTimelineLoading, processingTimelineError, storage, projectStorage, alertPreferencePending, storageMeteringPending, restoringId, assigningId, deletingId, batchDeletingUnclassified, creatingProject, onRestore, onDownload, onCreateProject, onAssignProject, onDelete, onDeleteUnclassified, onStorageEmailAlertsChange, onRefreshStorageMetering, onOpenPlans, onStartWork }: PhotoLibraryDialogProps) {
+export function PhotoLibraryDialog({ open, onOpenChange, userName, records, projects, isLoading, isError, plan, used, allowance, creditBalance = 0, processingTimeline, processingTimelineLoading, processingTimelineError, storage, projectStorage, alertPreferencePending, storageMeteringPending, restoringId, assigningId, deletingId, batchDeletingUnclassified, creatingProject, onRestore, onDownload, onCreateProject, onAssignProject, onDelete, onDeleteUnclassified, onStorageEmailAlertsChange, onRefreshStorageMetering, onOpenPlans, onStartWork }: PhotoLibraryDialogProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<PhotoLibraryFilter>("all");
   const [projectFilter, setProjectFilter] = useState("all");
@@ -73,7 +74,7 @@ export function PhotoLibraryDialog({ open, onOpenChange, userName, records, proj
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
   const [isBatchDownloading, setIsBatchDownloading] = useState(false);
   const usage = getMonthlyImageUsage(used, allowance);
-  const usageAlert = getUsageAlert(used, allowance, plan);
+  const usageAlert = getUsageAlert(used, allowance, plan, creditBalance);
   const filteredRecords = useMemo(() => filterPhotoLibraryByProject(filterPhotoLibrary(records, search, filter), projectFilter), [records, search, filter, projectFilter]);
   const visibleRecords = useMemo(() => sortPhotoLibraryRecords(filteredRecords, sort), [filteredRecords, sort]);
   const selectedRecords = useMemo(() => selectedPhotoLibraryRecords(visibleRecords, selectedIds), [visibleRecords, selectedIds]);
@@ -138,7 +139,7 @@ export function PhotoLibraryDialog({ open, onOpenChange, userName, records, proj
       {isLoading ? <div className="grid min-h-52 place-items-center rounded-2xl border border-[#dbe5ef] bg-white text-sm font-semibold text-[#64758c]"><span className="flex items-center gap-2"><Loader2 className="animate-spin text-[#1665d8]" size={18} />正在載入相片…</span></div> : isError ? <div className="rounded-2xl border border-[#ecc9bb] bg-[#fff7f3] p-5 text-sm leading-6 text-[#914630]">暫時未能載入我的相片。請關閉視窗後再試。</div> : <div className="space-y-4">
         <div className="rounded-2xl border border-[#d7e6f5] bg-[#f3f8ff] p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-[#1665d8] shadow-sm"><CreditCard size={17} /></span><div><strong className="block text-sm text-[#1e3654]">{ACCOUNT_PLANS[plan].name} · 本月額度</strong><span className="text-xs text-[#64758c]">已完成 {usage.used}/{usage.allowance} 張，尚餘 {usage.remaining} 張。</span></div></div>
+            <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-[#1665d8] shadow-sm"><CreditCard size={17} /></span><div><strong className="block text-sm text-[#1e3654]">{ACCOUNT_PLANS[plan].name} · 本月額度</strong><span className="text-xs text-[#64758c]">已完成 {usage.used}/{usage.allowance} 張，尚餘 {usage.remaining} 張{creditBalance > 0 ? `；另有加購額度 ${creditBalance} 張` : ""}。</span></div></div>
             <Button onClick={onOpenPlans} variant="outline" className="h-8 rounded-lg border-[#bfd3ee] bg-white px-2.5 text-xs font-bold text-[#1665d8] hover:bg-[#eaf2ff]">查看方案</Button>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-[#1665d8] transition-[width] duration-300" style={{ width: `${usage.percentage}%` }} /></div>

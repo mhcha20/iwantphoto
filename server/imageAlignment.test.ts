@@ -257,4 +257,25 @@ describe("segmentation helpers", () => {
     expect(alphaAt(right + 30, SUBJECT.y + 70)).toBe(255); // the missed part is restored
     expect(alphaAt(SUBJECT.x - 2, SUBJECT.y + 150)).toBe(0); // the drift band is not
   });
+  it("keeps the gap between bag handles transparent even when the model fills it", async () => {
+    const original = await scene({ withTag: false });
+    const canvas = { width: W, height: H };
+    const probability = new Uint8Array(W * H);
+    const model = new Uint8Array(W * H);
+    // A handle: a 12px ring around a 60x50 gap, sitting on top of the subject.
+    const gap = { x: SUBJECT.x + 100, y: SUBJECT.y - 62, w: 60, h: 50 };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      const inSubject = x >= SUBJECT.x && x < SUBJECT.x + SUBJECT.w && y >= SUBJECT.y && y < SUBJECT.y + SUBJECT.h;
+      const inRing = x >= gap.x - 12 && x < gap.x + gap.w + 12 && y >= gap.y - 12 && y < SUBJECT.y;
+      const inGap = x >= gap.x && x < gap.x + gap.w && y >= gap.y && y < gap.y + gap.h;
+      if (inSubject || (inRing && !inGap)) probability[i] = 250;
+      if (inSubject || inRing) model[i] = 1; // the model paints the gap as part of the bag
+    }
+    const png = await composeSegmentedCutout(original, canvas, probability, new Uint8Array(W * H), model, "transparent");
+    const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+    const alphaAt = (x: number, y: number) => data[(y * W + x) * 4 + 3];
+    expect(alphaAt(gap.x + 30, gap.y + 25)).toBe(0);
+    expect(alphaAt(gap.x - 6, gap.y + 25)).toBe(255);
+  });
 });

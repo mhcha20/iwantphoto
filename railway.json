@@ -1,6 +1,9 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
-  "build": { "builder": "RAILPACK", "buildCommand": "pnpm install --frozen-lockfile && pnpm run build" },
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "pnpm install --frozen-lockfile && pnpm run build && node scripts/fetch-models.mjs"
+  },
   "deploy": {
     "startCommand": "pnpm start",
     "healthcheckPath": "/healthz",

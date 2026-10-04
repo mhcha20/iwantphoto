@@ -1,8 +1,17 @@
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ storagePut: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  storagePut: vi.fn(),
+  segmentationAvailable: false,
+  segmentSubject: vi.fn(),
+}));
 vi.mock("./storage", () => ({ storagePut: mocks.storagePut }));
+// Tests that exercise the model-only path run without a segmentation model, as on a server without it.
+vi.mock("./segmentation", () => ({
+  isSegmentationAvailable: () => mocks.segmentationAvailable,
+  segmentSubject: mocks.segmentSubject,
+}));
 
 import { ENV } from "./_core/env";
 import { generateImage } from "./_core/imageGeneration";
@@ -12,6 +21,7 @@ const PNG_B64 = Buffer.from("fake-png-bytes").toString("base64");
 describe("OpenRouter image generation", () => {
   const originalKey = ENV.openRouterApiKey;
   beforeEach(() => {
+    mocks.segmentationAvailable = false;
     ENV.openRouterApiKey = "sk-or-test";
     mocks.storagePut.mockResolvedValue({ key: "generated/x.png", url: "/manus-storage/generated/x.png" });
   });
@@ -174,6 +184,96 @@ describe("OpenRouter image generation", () => {
     })).rejects.toBeInstanceOf(UnalignedEditError);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(mocks.storagePut).not.toHaveBeenCalled();
+  });
+
+  describe("segmentation-led cut-out", () => {
+    const W = 200, H = 160;
+    const box = { x: 60, y: 40, w: 80, h: 90 };
+    const photo = () =>
+      sharp({ create: { width: W, height: H, channels: 3, background: "#c9b79c" } })
+        .composite([{ input: Buffer.from(`<svg width="${box.w}" height="${box.h}" xmlns="http://www.w3.org/2000/svg"><rect width="${box.w}" height="${box.h}" fill="#2b6cb0"/><rect x="8" y="20" width="${box.w - 16}" height="12" fill="#f6ad55"/><rect x="8" y="55" width="${box.w - 16}" height="12" fill="#e2e8f0"/></svg>`), left: box.x, top: box.y }])
+        .png()
+        .toBuffer();
+    /** Segmentation that is sure about the box and (optionally) unsure about a patch to its right. */
+    const probability = (unsurePatch: boolean) => {
+      const p = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const inBox = x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h;
+        const inPatch = unsurePatch && x >= box.x + box.w && x < box.x + box.w + 30 && y >= box.y + 20 && y < box.y + 60;
+        p[y * W + x] = inBox ? 250 : inPatch ? 120 : 3;
+      }
+      return p;
+    };
+    const alphaAt = async (x: number, y: number) => {
+      const { data } = await sharp(mocks.storagePut.mock.calls[0][1]).raw().toBuffer({ resolveWithObject: true });
+      return data[(y * W + x) * 4 + 3];
+    };
+
+    beforeEach(() => {
+      mocks.segmentationAvailable = true;
+    });
+
+    it("trusts a confident segmentation on its own and never calls the image model", async () => {
+      const original = await photo();
+      mocks.segmentSubject.mockResolvedValue(probability(false));
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await generateImage({
+        prompt: "cut out",
+        originalImages: [{ b64Json: original.toString("base64"), mimeType: "image/png" }],
+        inPlace: { kind: "cutout", keyColor: "green", background: "transparent" },
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await alphaAt(box.x + 5, box.y + 5)).toBe(255);
+      expect(await alphaAt(box.x - 5, box.y + 5)).toBe(0);
+    });
+
+    it("asks the image model only about the unsure area and keeps the original pixels", async () => {
+      const original = await photo();
+      mocks.segmentSubject.mockResolvedValue(probability(true));
+      // The model says the unsure patch IS subject: box plus patch, drawn on green, perfectly placed.
+      const drawn = await sharp({ create: { width: W, height: H, channels: 3, background: "#8fbc78" } })
+        .composite([
+          { input: await sharp(original).extract({ left: box.x, top: box.y, width: box.w, height: box.h }).toBuffer(), left: box.x, top: box.y },
+          { input: await sharp({ create: { width: 30, height: 40, channels: 3, background: "#7a4b2a" } }).png().toBuffer(), left: box.x + box.w, top: box.y + 20 },
+        ])
+        .png()
+        .toBuffer();
+      const fetchMock = vi.fn(async () => new Response(
+        JSON.stringify({ choices: [{ message: { images: [{ image_url: { url: `data:image/png;base64,${drawn.toString("base64")}` } }] } }] }),
+        { status: 200 },
+      ));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await generateImage({
+        prompt: "cut out",
+        originalImages: [{ b64Json: original.toString("base64"), mimeType: "image/png" }],
+        inPlace: { kind: "cutout", keyColor: "green", background: "transparent" },
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(await alphaAt(box.x + box.w + 15, box.y + 40)).toBe(255);
+      expect(await alphaAt(box.x - 5, box.y + 5)).toBe(0);
+    });
+
+    it("still returns the segmentation cut-out when the image model fails", async () => {
+      const original = await photo();
+      mocks.segmentSubject.mockResolvedValue(probability(true));
+      vi.stubGlobal("fetch", vi.fn(async () => new Response("busy", { status: 503, statusText: "Service Unavailable" })));
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      await generateImage({
+        prompt: "cut out",
+        originalImages: [{ b64Json: original.toString("base64"), mimeType: "image/png" }],
+        inPlace: { kind: "cutout", keyColor: "green", background: "transparent" },
+      });
+
+      expect(await alphaAt(box.x + 5, box.y + 5)).toBe(255);
+      // The unsure patch falls back to the segmentation's own call (below 50% → background).
+      expect(await alphaAt(box.x + box.w + 15, box.y + 40)).toBe(0);
+    });
   });
 
   it("fails clearly when the provider returns no image", async () => {

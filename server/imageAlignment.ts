@@ -22,6 +22,8 @@ const MIN_MATCH_SCORE = 0.6;
 const MAX_SAMPLES_PER_LEVEL = 20_000;
 /** Enclosed holes under this share of the canvas are treated as specks the model got wrong, not real holes. */
 const SMALL_HOLE_SHARE = 0.0025;
+/** Detached subject fragments under this share of the canvas are stray background, not product. */
+const SMALL_ISLAND_SHARE = 0.001;
 
 function levelSize(size: ImageSize, longSide: number): ImageSize {
   const factor = longSide / Math.max(size.width, size.height);
@@ -259,50 +261,100 @@ async function encodeRgba(image: Rgba) {
 export type ComposeResult = { buffer: Buffer; aligned: boolean; alignment?: Similarity & { score: number } };
 
 /**
- * Cut-out: the model drew the subject on a flat key colour. Its alpha is aligned onto the
- * original, and the final pixels are the original photo's own pixels (edges use the
- * model's de-spilled colours so no old background bleeds through).
- * Returns undefined when the key background is unusable (caller retries).
+ * Aligns the model's key-colour cut-out onto the original and returns its subject as a binary
+ * mask in the original's frame. Undefined when the key background is unusable (caller retries);
+ * `subject` is null when the drawing cannot be aligned.
+ */
+export async function alignModelSubject(reference: Buffer, generated: Buffer, key: KeyColor, canvas: ImageSize) {
+  const keyed = await keyColorToAlpha(await sharp(generated).resize(canvas.width, canvas.height, { fit: "fill" }).png().toBuffer(), key);
+  if (!keyed) return undefined;
+  const alignment = await estimateAlignment(reference, keyed, canvas, (gen) => alphaPlane(gen).data);
+  const cutout = await readRgba(keyed, canvas);
+  if (alignment.score < MIN_MATCH_SCORE) return { subject: null, alignment, unaligned: cutout };
+  const warped = warpToReference(cutout, canvas, alignment);
+  sealHairlineGaps(warped);
+  // The model's alpha only decides WHAT is subject. Its in-between values are not real
+  // transparency: a muted key colour close to the subject (pinkish magenta vs. skin) would
+  // otherwise leave the subject see-through.
+  const subject = new Uint8Array(canvas.width * canvas.height);
+  for (let i = 0; i < subject.length; i++) subject[i] = warped.data[i * 4 + 3] >= 128 ? 1 : 0;
+  return { subject, alignment, unaligned: cutout };
+}
+
+/** Final cut-out: solid subject with a ~1px soft edge, every visible pixel taken from the original. */
+async function renderCutout(reference: Buffer, canvas: ImageSize, subject: Uint8Array, background: "transparent" | "white") {
+  fillSmallEnclosedHoles(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_HOLE_SHARE));
+  const solid = Buffer.alloc(subject.length);
+  for (let i = 0; i < solid.length; i++) solid[i] = subject[i] ? 255 : 0;
+  const alpha = await sharp(solid, { raw: { width: canvas.width, height: canvas.height, channels: 1 } })
+    .blur(0.8)
+    .extractChannel(0)
+    .raw()
+    .toBuffer();
+  const original = await readRgba(reference, canvas);
+  const result: Rgba = { data: Buffer.alloc(original.data.length), width: canvas.width, height: canvas.height };
+  for (let i = 0; i < alpha.length; i++) {
+    const o = i * 4;
+    result.data[o] = original.data[o];
+    result.data[o + 1] = original.data[o + 1];
+    result.data[o + 2] = original.data[o + 2];
+    result.data[o + 3] = alpha[i];
+  }
+  const buffer = await encodeRgba(result);
+  return background === "white" ? sharp(buffer).flatten({ background: "#ffffff" }).png().toBuffer() : buffer;
+}
+
+/**
+ * Cut-out from the model alone (used when no segmentation model is installed): the model drew the
+ * subject on a flat key colour; its alpha is aligned onto the original and the original's own pixels
+ * are kept. Returns undefined when the key background is unusable (caller retries).
  */
 export async function composeCutout(reference: Buffer, generated: Buffer, key: KeyColor, background: "transparent" | "white"): Promise<ComposeResult | undefined> {
   const canvas = await outputCanvas(reference);
-  const keyed = await keyColorToAlpha(await sharp(generated).resize(canvas.width, canvas.height, { fit: "fill" }).png().toBuffer(), key);
-  if (!keyed) return undefined;
-
-  const alignment = await estimateAlignment(reference, keyed, canvas, (gen) => alphaPlane(gen).data);
-  const cutout = await readRgba(keyed, canvas);
-  let result: Rgba;
-  if (alignment.score < MIN_MATCH_SCORE) {
-    result = cutout;
-  } else {
-    const warped = warpToReference(cutout, canvas, alignment);
-    sealHairlineGaps(warped);
-    const original = await readRgba(reference, canvas);
-    // The model's alpha only decides WHAT is subject. Its in-between values are not real
-    // transparency: a muted key colour close to the subject (pinkish magenta vs. skin) would
-    // otherwise leave the subject see-through. Harden it to a solid mask with a ~1px soft edge.
-    const solid = Buffer.alloc(canvas.width * canvas.height);
-    const subject = new Uint8Array(solid.length);
-    for (let i = 0; i < subject.length; i++) subject[i] = warped.data[i * 4 + 3] >= 128 ? 1 : 0;
-    fillSmallEnclosedHoles(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_HOLE_SHARE));
-    for (let i = 0; i < solid.length; i++) solid[i] = subject[i] ? 255 : 0;
-    const alpha = await sharp(solid, { raw: { width: canvas.width, height: canvas.height, channels: 1 } })
-      .blur(0.8)
-      .extractChannel(0)
-      .raw()
-      .toBuffer();
-    result = { data: Buffer.alloc(warped.data.length), width: canvas.width, height: canvas.height };
-    for (let i = 0; i < alpha.length; i++) {
-      const o = i * 4;
-      result.data[o] = original.data[o];
-      result.data[o + 1] = original.data[o + 1];
-      result.data[o + 2] = original.data[o + 2];
-      result.data[o + 3] = alpha[i];
-    }
+  const aligned = await alignModelSubject(reference, generated, key, canvas);
+  if (!aligned) return undefined;
+  if (!aligned.subject) {
+    let buffer = await encodeRgba(aligned.unaligned);
+    if (background === "white") buffer = await sharp(buffer).flatten({ background: "#ffffff" }).png().toBuffer();
+    return { buffer, aligned: false, alignment: aligned.alignment };
   }
-  let buffer = await encodeRgba(result);
-  if (background === "white") buffer = await sharp(buffer).flatten({ background: "#ffffff" }).png().toBuffer();
-  return { buffer, aligned: alignment.score >= MIN_MATCH_SCORE, alignment };
+  return { buffer: await renderCutout(reference, canvas, aligned.subject, background), aligned: true, alignment: aligned.alignment };
+}
+
+const CONFIDENT_SUBJECT = 217; // 85%
+const CONFIDENT_BACKGROUND = 38; // 15%
+
+/**
+ * Areas where the segmentation model is genuinely unsure (e.g. a brown paper bag inside a carrier
+ * bag), as opposed to the thin band of in-between values that every soft edge has. The band is
+ * removed with a morphological opening sized to the image.
+ */
+export function uncertainRegions(probability: Uint8Array, width: number, height: number): Uint8Array {
+  const unsure = new Uint8Array(probability.length);
+  for (let i = 0; i < unsure.length; i++) unsure[i] = probability[i] > CONFIDENT_BACKGROUND && probability[i] < CONFIDENT_SUBJECT ? 1 : 0;
+  const radius = Math.max(2, Math.round(Math.max(width, height) / 200));
+  return dilate(erode(unsure, width, height, radius), width, height, radius);
+}
+
+/**
+ * Background removal from a pixel-accurate segmentation of the original. Where the segmentation is
+ * genuinely unsure, the aligned model cut-out (if any) decides; everywhere else, including every
+ * edge, the segmentation decides, so outlines follow the real photo exactly.
+ */
+export async function composeSegmentedCutout(
+  reference: Buffer,
+  canvas: ImageSize,
+  probability: Uint8Array,
+  unsure: Uint8Array,
+  modelSubject: Uint8Array | null,
+  background: "transparent" | "white",
+) {
+  const subject = new Uint8Array(probability.length);
+  for (let i = 0; i < subject.length; i++) {
+    subject[i] = unsure[i] && modelSubject ? modelSubject[i] : probability[i] >= 128 ? 1 : 0;
+  }
+  removeSmallIslands(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_ISLAND_SHARE));
+  return renderCutout(reference, canvas, subject, background);
 }
 
 function dilate(mask: Uint8Array, width: number, height: number, radius: number): Uint8Array {
@@ -370,6 +422,30 @@ function fillSmallEnclosedHoles(solid: Uint8Array, width: number, height: number
       }
     }
     if (!touchesBorder && tail <= maxArea) for (let k = 0; k < tail; k++) solid[queue[k]] = 1;
+  }
+}
+
+/** Drops detached subject fragments smaller than `maxArea` pixels (stray bits of background the segmentation kept). */
+function removeSmallIslands(solid: Uint8Array, width: number, height: number, maxArea: number) {
+  const seen = new Uint8Array(solid.length);
+  const queue = new Int32Array(solid.length);
+  for (let start = 0; start < solid.length; start++) {
+    if (!solid[start] || seen[start]) continue;
+    let head = 0, tail = 0;
+    queue[tail++] = start;
+    seen[start] = 1;
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % width, y = (i - x) / width;
+      const neighbours = [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, y > 0 ? i - width : -1, y < height - 1 ? i + width : -1];
+      for (const n of neighbours) {
+        if (n >= 0 && solid[n] && !seen[n]) {
+          seen[n] = 1;
+          queue[tail++] = n;
+        }
+      }
+    }
+    if (tail <= maxArea) for (let k = 0; k < tail; k++) solid[queue[k]] = 0;
   }
 }
 

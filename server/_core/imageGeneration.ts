@@ -10,8 +10,9 @@
  * Reference images are fetched server-side and sent as data URLs so the result
  * does not depend on the upstream provider being able to reach our storage.
  */
-import { composeCleanup, composeCutout } from "../imageAlignment";
-import { fitToReferenceCanvas, keyColorToAlpha, nearestSupportedAspectRatio, readImageSize, toUprightImage, type KeyColor } from "../imagePostProcess";
+import { alignModelSubject, composeCleanup, composeCutout, composeSegmentedCutout, outputCanvas, uncertainRegions } from "../imageAlignment";
+import { fitToReferenceCanvas, keyColorToAlpha, nearestSupportedAspectRatio, readImageSize, toUprightImage, type ImageSize, type KeyColor } from "../imagePostProcess";
+import { isSegmentationAvailable, segmentSubject } from "../segmentation";
 import { storagePut } from "../storage";
 import { ENV } from "./env";
 
@@ -99,14 +100,14 @@ import { TransparentCutoutError, UnalignedEditError } from "./imageEditErrors";
 
 export { TransparentCutoutError, UnalignedEditError };
 
-async function generateImageOnce(options: GenerateImageOptions): Promise<GenerateImageResponse> {
+type LoadedReference = Awaited<ReturnType<typeof loadReference>>;
+
+/** One call to the image model; returns the image it produced. */
+async function requestModelImage(options: GenerateImageOptions, references: LoadedReference[], referenceSize?: ImageSize) {
   if (!ENV.openRouterApiKey) {
     throw new Error("OPENROUTER_API_KEY is not configured");
   }
   const model = options.model ?? ENV.openRouterImageModel;
-  const references = await Promise.all((options.originalImages ?? []).map(loadReference));
-  const referenceSize = (options.matchReferenceCanvas || options.inPlace) && references[0] ? await readImageSize(references[0].bytes) : undefined;
-
   const response = await fetch(`${ENV.openRouterBaseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -146,7 +147,13 @@ async function generateImageOnce(options: GenerateImageOptions): Promise<Generat
   if (!dataUrl) {
     throw new Error(`Image generation returned no image${result.error?.message ? `: ${result.error.message}` : ""}`);
   }
-  const parsed = parseDataUrl(dataUrl);
+  return parseDataUrl(dataUrl);
+}
+
+async function generateImageOnce(options: GenerateImageOptions): Promise<GenerateImageResponse> {
+  const references = await Promise.all((options.originalImages ?? []).map(loadReference));
+  const referenceSize = (options.matchReferenceCanvas || options.inPlace) && references[0] ? await readImageSize(references[0].bytes) : undefined;
+  const parsed = await requestModelImage(options, references, referenceSize);
   let buffer = parsed.buffer;
   let mimeType = parsed.mimeType;
 
@@ -174,14 +181,56 @@ async function generateImageOnce(options: GenerateImageOptions): Promise<Generat
     mimeType = "image/png";
   }
 
+  return storeImage(buffer, mimeType);
+}
+
+const EDIT_ATTEMPTS = 2;
+/** Below this share of the canvas, the segmentation is trusted on its own and the image model is not called. */
+const UNSURE_SHARE_NEEDING_MODEL = 0.005;
+
+async function storeImage(buffer: Buffer, mimeType: string): Promise<GenerateImageResponse> {
   const extension = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png";
   const { url } = await storagePut(`generated/${Date.now()}.${extension}`, buffer, mimeType);
   return { url, byteSize: buffer.length, mimeType };
 }
 
-const EDIT_ATTEMPTS = 2;
+/**
+ * Background removal led by a local segmentation model, which scores the original's own pixels, so
+ * outlines are exact. The image model is only consulted for areas the segmentation is genuinely unsure
+ * about (e.g. a paper bag inside a carrier bag); if it fails or cannot be aligned, the segmentation
+ * result is used on its own. Never ships a misplaced edit and never needs to report a failure for it.
+ */
+async function generateSegmentedCutout(
+  options: GenerateImageOptions,
+  edit: { keyColor: KeyColor; background: "transparent" | "white" },
+): Promise<GenerateImageResponse> {
+  const references = await Promise.all((options.originalImages ?? []).map(loadReference));
+  const original = references[0]?.bytes;
+  if (!original) throw new Error("In-place edit needs the original photo as the first reference");
+  const canvas = await outputCanvas(original);
+  const probability = await segmentSubject(original, canvas);
+  const unsure = uncertainRegions(probability, canvas.width, canvas.height);
+  let unsureCount = 0;
+  for (let i = 0; i < unsure.length; i++) unsureCount += unsure[i];
+  const unsureShare = unsureCount / unsure.length;
+
+  let modelSubject: Uint8Array | null = null;
+  if (unsureShare >= UNSURE_SHARE_NEEDING_MODEL) {
+    try {
+      const drawn = await requestModelImage(options, references, await readImageSize(original));
+      const aligned = await alignModelSubject(original, drawn.buffer, edit.keyColor, canvas);
+      modelSubject = aligned?.subject ?? null;
+      if (!modelSubject) console.warn("[iwantphoto edit] model cut-out unusable; using segmentation only", { score: aligned?.alignment.score });
+    } catch (error) {
+      console.warn("[iwantphoto edit] image model unavailable; using segmentation only", { reason: (error as Error).message });
+    }
+  }
+  const buffer = await composeSegmentedCutout(original, canvas, probability, unsure, modelSubject, edit.background);
+  return storeImage(buffer, "image/png");
+}
 
 export async function generateImage(options: GenerateImageOptions): Promise<GenerateImageResponse> {
+  if (options.inPlace?.kind === "cutout" && isSegmentationAvailable()) return generateSegmentedCutout(options, options.inPlace);
   if (!options.keyColor && !options.inPlace) return generateImageOnce(options);
   // Models occasionally ignore the flat-background instruction or reframe the photo heavily;
   // a second try usually fixes it. If every try fails, the last error is thrown.

@@ -282,8 +282,9 @@ export async function alignModelSubject(reference: Buffer, generated: Buffer, ke
 }
 
 /** Final cut-out: solid subject with a ~1px soft edge, every visible pixel taken from the original. */
-async function renderCutout(reference: Buffer, canvas: ImageSize, subject: Uint8Array, background: "transparent" | "white") {
+async function renderCutout(reference: Buffer, canvas: ImageSize, subject: Uint8Array, background: "transparent" | "white", keepClear?: Uint8Array) {
   fillSmallEnclosedHoles(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_HOLE_SHARE));
+  if (keepClear) for (let i = 0; i < subject.length; i++) if (keepClear[i]) subject[i] = 0;
   const solid = Buffer.alloc(subject.length);
   for (let i = 0; i < solid.length; i++) solid[i] = subject[i] ? 255 : 0;
   const alpha = await sharp(solid, { raw: { width: canvas.width, height: canvas.height, channels: 1 } })
@@ -339,8 +340,9 @@ export function uncertainRegions(probability: Uint8Array, width: number, height:
 /**
  * Background removal from a pixel-accurate segmentation of the original. Where the segmentation is
  * genuinely unsure, the aligned model cut-out (if any) decides; solid parts the model adds next to the
- * subject are kept too. Everywhere else, including every edge, the segmentation decides, so outlines
- * follow the real photo exactly.
+ * subject are kept too, except where the segmentation confidently sees background through the subject
+ * (e.g. between bag handles). Everywhere else, including every edge, the segmentation decides, so
+ * outlines follow the real photo exactly.
  */
 export async function composeSegmentedCutout(
   reference: Buffer,
@@ -360,7 +362,41 @@ export async function composeSegmentedCutout(
     for (let i = 0; i < subject.length; i++) if (extra[i]) subject[i] = 1;
   }
   removeSmallIslands(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_ISLAND_SHARE));
-  return renderCutout(reference, canvas, subject, background);
+  return renderCutout(reference, canvas, subject, background, segmentedHoles(probability, width, height));
+}
+
+const MIN_SEGMENTED_HOLE_SHARE = 0.0001;
+
+/**
+ * Background the segmentation confidently sees through the subject, such as the wall between a bag's
+ * handles. These stay transparent even when the model cut-out or hole filling would close them.
+ */
+function segmentedHoles(probability: Uint8Array, width: number, height: number): Uint8Array {
+  const holes = new Uint8Array(probability.length);
+  const seen = new Uint8Array(probability.length);
+  const queue = new Int32Array(probability.length);
+  const minArea = Math.round(width * height * MIN_SEGMENTED_HOLE_SHARE);
+  for (let start = 0; start < probability.length; start++) {
+    if (probability[start] >= 128 || seen[start]) continue;
+    let head = 0, tail = 0, touchesBorder = false;
+    queue[tail++] = start;
+    seen[start] = 1;
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % width, y = (i - x) / width;
+      if (x === 0 || y === 0 || x === width - 1 || y === height - 1) touchesBorder = true;
+      const neighbours = [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, y > 0 ? i - width : -1, y < height - 1 ? i + width : -1];
+      for (const n of neighbours) {
+        if (n >= 0 && probability[n] < 128 && !seen[n]) {
+          seen[n] = 1;
+          queue[tail++] = n;
+        }
+      }
+    }
+    if (touchesBorder || tail < minArea) continue;
+    for (let k = 0; k < tail; k++) if (probability[queue[k]] <= CONFIDENT_BACKGROUND) holes[queue[k]] = 1;
+  }
+  return holes;
 }
 
 /**

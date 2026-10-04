@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { composeCleanup, composeCutout, warpToReference } from "./imageAlignment";
+import { composeCleanup, composeCutout, composeSegmentedCutout, uncertainRegions, warpToReference } from "./imageAlignment";
 
 const W = 1200;
 const H = 800;
@@ -183,5 +183,57 @@ describe("composeCleanup", () => {
     const unrelated = await sharp({ create: { width: 1024, height: 683, channels: 3, background: "#333" } }).png().toBuffer();
     const result = await composeCleanup(original, unrelated);
     expect(result.aligned).toBe(false);
+  });
+});
+
+describe("segmentation helpers", () => {
+  it("ignores the soft band around every edge but keeps genuinely unsure areas", () => {
+    const w = 400, h = 300;
+    const p = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      // A confident square with a 2px soft edge, plus a 40x40 unsure blob elsewhere.
+      if (x >= 100 && x < 200 && y >= 100 && y < 200) p[i] = 250;
+      else if (x >= 98 && x < 202 && y >= 98 && y < 202) p[i] = 128;
+      else if (x >= 300 && x < 340 && y >= 50 && y < 90) p[i] = 120;
+    }
+    const unsure = uncertainRegions(p, w, h);
+    expect(unsure[99 * w + 150]).toBe(0);
+    expect(unsure[70 * w + 320]).toBe(1);
+  });
+
+  it("drops small detached fragments but keeps the subject", async () => {
+    const original = await scene({ withTag: false });
+    const probability = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (x >= SUBJECT.x && x < SUBJECT.x + SUBJECT.w && y >= SUBJECT.y && y < SUBJECT.y + SUBJECT.h) probability[i] = 250;
+      if (x >= 900 && x < 915 && y >= 100 && y < 112) probability[i] = 250; // a 15x12 stray fragment
+    }
+    const png = await composeSegmentedCutout(original, { width: W, height: H }, probability, new Uint8Array(W * H), null, "transparent");
+    const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+    expect(data[(106 * W + 907) * 4 + 3]).toBe(0);
+    expect(data[((SUBJECT.y + 50) * W + SUBJECT.x + 50) * 4 + 3]).toBe(255);
+  });
+
+  it("lets the model decide only inside unsure areas", async () => {
+    const original = await scene({ withTag: false });
+    const canvas = { width: W, height: H };
+    const probability = new Uint8Array(W * H);
+    const unsure = new Uint8Array(W * H);
+    const model = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (x >= SUBJECT.x && x < SUBJECT.x + SUBJECT.w && y >= SUBJECT.y && y < SUBJECT.y + SUBJECT.h) probability[i] = 250;
+      if (x >= 100 && x < 200 && y >= 100 && y < 200) { unsure[i] = 1; model[i] = 1; probability[i] = 100; }
+      // The model also (wrongly) claims a background area the segmentation is sure about.
+      if (x >= 900 && x < 1000 && y >= 100 && y < 200) model[i] = 1;
+    }
+    const png = await composeSegmentedCutout(original, canvas, probability, unsure, model, "transparent");
+    const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+    const alphaAt = (x: number, y: number) => data[(y * W + x) * 4 + 3];
+    expect(alphaAt(150, 150)).toBe(255); // unsure + model says subject
+    expect(alphaAt(950, 150)).toBe(0); // segmentation is sure it's background
+    expect(alphaAt(SUBJECT.x + 50, SUBJECT.y + 50)).toBe(255);
   });
 });

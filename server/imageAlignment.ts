@@ -284,7 +284,11 @@ export async function alignModelSubject(reference: Buffer, generated: Buffer, ke
 /** Final cut-out: solid subject with a ~1px soft edge, every visible pixel taken from the original. */
 async function renderCutout(reference: Buffer, canvas: ImageSize, subject: Uint8Array, background: "transparent" | "white", keepClear?: Uint8Array) {
   fillSmallEnclosedHoles(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_HOLE_SHARE));
-  if (keepClear) for (let i = 0; i < subject.length; i++) if (keepClear[i]) subject[i] = 0;
+  if (keepClear) {
+    for (let i = 0; i < subject.length; i++) if (keepClear[i]) subject[i] = 0;
+    // Specks of wall texture left inside a cleared gap are now detached from the subject.
+    removeSmallIslands(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_ISLAND_SHARE));
+  }
   const solid = Buffer.alloc(subject.length);
   for (let i = 0; i < solid.length; i++) solid[i] = subject[i] ? 255 : 0;
   const alpha = await sharp(solid, { raw: { width: canvas.width, height: canvas.height, channels: 1 } })
@@ -362,17 +366,22 @@ export async function composeSegmentedCutout(
     for (let i = 0; i < subject.length; i++) if (extra[i]) subject[i] = 1;
   }
   removeSmallIslands(subject, canvas.width, canvas.height, Math.round(canvas.width * canvas.height * SMALL_ISLAND_SHARE));
-  return renderCutout(reference, canvas, subject, background, segmentedHoles(probability, width, height));
+  return renderCutout(reference, canvas, subject, background, segmentedHoles(probability, await readRgba(reference, canvas)));
 }
 
 const MIN_SEGMENTED_HOLE_SHARE = 0.0001;
+const MIN_HOLE_CONFIDENT_SHARE = 0.15;
+const MIN_HOLE_COLOR_TOLERANCE = 24;
 
 /**
- * Background the segmentation confidently sees through the subject, such as the wall between a bag's
- * handles, including its lower-confidence fringe. These stay transparent even when the model cut-out
- * or hole filling would close them.
+ * Background the segmentation sees through the subject, such as the wall between a bag's handles.
+ * A gap that is mostly confident background is cleared whole. In a less certain gap the confident
+ * core is cleared, plus pixels with the core's colour (the same wall), so real subject parts showing
+ * through it (a different colour) are still left to the model. These stay transparent even when the model
+ * cut-out or hole filling would close them.
  */
-function segmentedHoles(probability: Uint8Array, width: number, height: number): Uint8Array {
+function segmentedHoles(probability: Uint8Array, original: Rgba): Uint8Array {
+  const { width, height, data } = original;
   const holes = new Uint8Array(probability.length);
   const seen = new Uint8Array(probability.length);
   const queue = new Int32Array(probability.length);
@@ -395,13 +404,37 @@ function segmentedHoles(probability: Uint8Array, width: number, height: number):
       }
     }
     if (touchesBorder || tail < minArea) continue;
-    // A real see-through gap is mostly confident background; its fringe (wall right next to a
-    // handle) is scored lower-confidence but belongs to the same gap. Mostly-unsure enclosed areas
-    // are left to the model.
     let confident = 0;
-    for (let k = 0; k < tail; k++) if (probability[queue[k]] <= CONFIDENT_BACKGROUND) confident++;
-    if (confident * 2 < tail) continue;
-    for (let k = 0; k < tail; k++) holes[queue[k]] = 1;
+    const sum = [0, 0, 0];
+    const squares = [0, 0, 0];
+    for (let k = 0; k < tail; k++) {
+      const i = queue[k];
+      if (probability[i] > CONFIDENT_BACKGROUND) continue;
+      confident++;
+      for (let c = 0; c < 3; c++) {
+        sum[c] += data[i * 4 + c];
+        squares[c] += data[i * 4 + c] ** 2;
+      }
+    }
+    if (confident < MIN_HOLE_CONFIDENT_SHARE * tail) continue;
+    if (confident * 2 >= tail) {
+      // Mostly confident: the whole gap is see-through, including its fringe next to a handle.
+      for (let k = 0; k < tail; k++) holes[queue[k]] = 1;
+      continue;
+    }
+    const mean = sum.map((v) => v / confident);
+    const variance = squares.reduce((total, v, c) => total + Math.max(0, v / confident - mean[c] ** 2), 0);
+    const tolerance = Math.max(MIN_HOLE_COLOR_TOLERANCE, 2.5 * Math.sqrt(variance));
+    for (let k = 0; k < tail; k++) {
+      const i = queue[k];
+      if (probability[i] <= CONFIDENT_BACKGROUND) {
+        holes[i] = 1;
+        continue;
+      }
+      let distance = 0;
+      for (let c = 0; c < 3; c++) distance += (data[i * 4 + c] - mean[c]) ** 2;
+      if (Math.sqrt(distance) <= tolerance) holes[i] = 1;
+    }
   }
   return holes;
 }

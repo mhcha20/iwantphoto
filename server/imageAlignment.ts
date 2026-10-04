@@ -343,8 +343,8 @@ export function uncertainRegions(probability: Uint8Array, width: number, height:
 
 /**
  * Background removal from a pixel-accurate segmentation of the original. Where the segmentation is
- * genuinely unsure, the aligned model cut-out (if any) decides; solid parts the model adds next to the
- * subject are kept too, except where the segmentation confidently sees background through the subject
+ * genuinely unsure, the aligned model cut-out (if any) may add to the subject but not remove from it;
+ * solid parts the model adds next to the subject are kept too, except where the segmentation confidently sees background through the subject
  * (e.g. between bag handles). Everywhere else, including every edge, the segmentation decides, so
  * outlines follow the real photo exactly.
  */
@@ -359,7 +359,9 @@ export async function composeSegmentedCutout(
   const { width, height } = canvas;
   const subject = new Uint8Array(probability.length);
   for (let i = 0; i < subject.length; i++) {
-    subject[i] = unsure[i] && modelSubject ? modelSubject[i] : probability[i] >= 128 ? 1 : 0;
+    // In unsure areas the model may add what the segmentation missed, but never remove what it
+    // kept: image models cannot draw see-through subjects (a clear plastic bag) on a key colour.
+    subject[i] = probability[i] >= 128 || (unsure[i] && modelSubject?.[i]) ? 1 : 0;
   }
   if (modelSubject) {
     const extra = attachedModelAdditions(subject, modelSubject, width, height);

@@ -303,4 +303,27 @@ describe("segmentation helpers", () => {
     expect(alphaAt(gap.x + 45, gap.y + 25)).toBe(0); // unsure, but the same colour as the confident wall
     expect(alphaAt(gap.x - 6, gap.y + 25)).toBe(255);
   });
+  it("never lets the model remove what the segmentation kept (e.g. a clear plastic bag)", async () => {
+    const original = await scene({ withTag: false });
+    const canvas = { width: W, height: H };
+    const probability = new Uint8Array(W * H);
+    const unsure = new Uint8Array(W * H);
+    const model = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (x >= SUBJECT.x && x < SUBJECT.x + SUBJECT.w && y >= SUBJECT.y && y < SUBJECT.y + SUBJECT.h) {
+        probability[i] = 250;
+        model[i] = 1;
+      }
+      // A see-through part the segmentation keeps without full confidence; the model drops it.
+      if (x >= SUBJECT.x && x < SUBJECT.x + 100 && y >= SUBJECT.y && y < SUBJECT.y + 100) {
+        probability[i] = 180;
+        unsure[i] = 1;
+        model[i] = 0;
+      }
+    }
+    const png = await composeSegmentedCutout(original, canvas, probability, unsure, model, "transparent");
+    const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+    expect(data[((SUBJECT.y + 50) * W + SUBJECT.x + 50) * 4 + 3]).toBe(255);
+  });
 });

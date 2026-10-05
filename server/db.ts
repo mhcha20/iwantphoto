@@ -696,6 +696,16 @@ export async function listUserImagesMissingStorageBytes(userId: number, limit = 
 }
 
 /** Updates the measured footprint for an account-owned saved image only. */
+/** Replaces a saved image's processed file (e.g. after a manual touch-up) for its owner only. */
+export async function updateUserImageProcessed(userId: number, imageId: number, processed: { processedUrl: string; processedBytes: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(userImages).set({
+    processedUrl: processed.processedUrl,
+    processedBytes: processed.processedBytes,
+  }).where(and(eq(userImages.userId, userId), eq(userImages.id, imageId)));
+}
+
 export async function updateUserImageStorageBytes(userId: number, imageId: number, sizes: { originalBytes: number; processedBytes: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");

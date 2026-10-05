@@ -11,7 +11,7 @@ import { inspectMarketplaceCompositionFromUrl } from "./marketplaceCompositionQu
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { getManagedStorageKey, storageGetSignedUrl, storagePut } from "./storage";
-import { assignImageToProject, countUserProcessingUsageSince, createMarketplaceBrandPreset, createMarketplaceWorkflow, createPhotoProject, createUserImage, getAdminWorkspaceOverview, getMarketplaceBrandPresetForUser, getPhotoProjectForUser, getUserImageForUser, getUserImageStorageBytes, getUserProjectStorageSummary, listAccountSecurityEvents, listMarketplaceBrandPresets, listMarketplaceWorkflows, listPhotoProjects, listSavedMarketplaceProducts, listUserImages, listUserImagesMissingStorageBytes, listUserProcessingUsageSince, markStorageUsageAlertSent, rearmStorageUsageAlerts, recordAccountSecurityEvent, recordProcessingUsage, refundPrepaidCredit, releaseStorageUsageAlert, removeMarketplaceBrandPreset, removeMarketplaceWorkflow, removeUnclassifiedUserImages, removeUserImage, reserveStorageUsageAlert, setMarketplaceBrandPresetDefault, setPhotoProjectBrandPreset, setStorageEmailAlertsEnabled, spendPrepaidCredit, updateAdminTestPlan, updateMarketplaceBrandPreset, updateUserAvatarUrl, updateUserDisplayName, updateUserImageStorageBytes, upsertSavedMarketplaceProduct } from "./db";
+import { assignImageToProject, countUserProcessingUsageSince, createMarketplaceBrandPreset, createMarketplaceWorkflow, createPhotoProject, createUserImage, getAdminWorkspaceOverview, getMarketplaceBrandPresetForUser, getPhotoProjectForUser, getUserImageForUser, getUserImageStorageBytes, getUserProjectStorageSummary, listAccountSecurityEvents, listMarketplaceBrandPresets, listMarketplaceWorkflows, listPhotoProjects, listSavedMarketplaceProducts, listUserImages, listUserImagesMissingStorageBytes, listUserProcessingUsageSince, markStorageUsageAlertSent, rearmStorageUsageAlerts, recordAccountSecurityEvent, recordProcessingUsage, refundPrepaidCredit, releaseStorageUsageAlert, removeMarketplaceBrandPreset, removeMarketplaceWorkflow, removeUnclassifiedUserImages, removeUserImage, reserveStorageUsageAlert, setMarketplaceBrandPresetDefault, setPhotoProjectBrandPreset, setStorageEmailAlertsEnabled, spendPrepaidCredit, updateAdminTestPlan, updateMarketplaceBrandPreset, updateUserAvatarUrl, updateUserDisplayName, updateUserImageProcessed, updateUserImageStorageBytes, upsertSavedMarketplaceProduct } from "./db";
 import { ACCOUNT_PLANS, getEffectiveAccountPlan, getPlanAllowance } from "@shared/plans";
 import { createCreditPackCheckout, createCustomerPortal, createStorageAddOnCheckout, createSubscriptionCheckout, shouldGrantSubscriptionEntitlement } from "./billing";
 import { CREDIT_PACKS } from "@shared/creditPacks";
@@ -27,6 +27,7 @@ import { draftMarketplaceListingCopy } from "./marketplaceListingCopy";
 import { getMarketplaceDetailSpecificationLines, isMarketplaceProductBriefReady, type MarketplaceLifestyleSceneCandidate } from "@shared/marketplaceProductBrief";
 import { normaliseMarketplaceWorkflowName } from "@shared/marketplaceWorkflows";
 import { createAccountAvatar } from "./accountAvatar";
+import { isValidTouchUpPng } from "./touchUp";
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_STORAGE_RESERVATION_BYTES = MAX_IMAGE_BYTES * 2;
@@ -844,6 +845,28 @@ export const appRouter = router({
             throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "處理失敗，請重試。AI 未能準確對齊原圖位置，這次不會扣除額度。" });
           }
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI 修圖服務暫時繁忙，請稍後再試。" });
+        }
+      }),
+    /** Saves a result the user corrected with the restore/erase brush. No AI, no credit. */
+    saveTouchUp: protectedProcedure
+      .input(z.object({
+        imageId: z.number().int().positive(),
+        imageData: z.string().min(32).max(17_000_000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const record = await getUserImageForUser(ctx.user.id, input.imageId);
+        if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "找不到這張相片，請重新整理後再試。" });
+        const { buffer, mimeType } = decodeImage(input.imageData, "image/png");
+        if (mimeType !== "image/png" || !(await isValidTouchUpPng(buffer))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "修補後的相片格式不正確，請再試一次。" });
+        }
+        try {
+          const { url } = await storagePut(`generated/touchup-${Date.now()}.png`, buffer, "image/png");
+          await updateUserImageProcessed(ctx.user.id, record.id, { processedUrl: url, processedBytes: buffer.length });
+          return { url };
+        } catch (error) {
+          console.error("[iwantphoto editor] unable to save touch-up", error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "暫時未能儲存修補，請稍後再試。" });
         }
       }),
     marketplaceBriefDraft: protectedProcedure

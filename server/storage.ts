@@ -75,6 +75,14 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
   return { key, url: `/manus-storage/${key}` };
 }
 
+/** Reads a stored object's bytes (used to serve images same-origin, e.g. for in-browser editing). */
+export async function storageGetBytes(relKey: string): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const { client, bucket } = getS3();
+  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: normalizeKey(relKey) }));
+  if (!result.Body) throw new Error("Stored object has no body");
+  return { bytes: await result.Body.transformToByteArray(), contentType: result.ContentType || "application/octet-stream" };
+}
+
 export async function storageGetSignedUrl(relKey: string): Promise<string> {
   const { client, bucket } = getS3();
   const key = normalizeKey(relKey);

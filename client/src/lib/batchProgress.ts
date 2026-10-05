@@ -5,7 +5,8 @@ export type BatchProgressState = {
   currentStartedAt: number;
 };
 
-const DEFAULT_IMAGE_DURATION_MS = 18_000;
+// Background removal runs two local segmentation models (plus the image model when unsure).
+const DEFAULT_IMAGE_DURATION_MS = 36_000;
 
 export function estimateSingleImageProgress(startedAt: number, now = Date.now()) {
   const elapsedMs = Math.max(0, now - startedAt);

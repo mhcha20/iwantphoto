@@ -14,6 +14,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Image-processing tests are CPU-bound and share cores with the real segmentation-model test.
+    testTimeout: 20_000,
     include: ["server/**/*.test.ts", "server/**/*.spec.ts", "client/src/**/*.test.ts", "client/src/**/*.spec.ts", "shared/**/*.test.ts", "shared/**/*.spec.ts"],
   },
 });

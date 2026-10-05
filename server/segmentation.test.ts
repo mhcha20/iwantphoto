@@ -2,8 +2,8 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { isSegmentationAvailable, segmentSubject } from "./segmentation";
 
-// Runs the real ISNet model when it has been fetched (`pnpm fetch:models`); skipped otherwise.
-describe.skipIf(!isSegmentationAvailable())("ISNet segmentation (real model)", () => {
+// Runs the real segmentation models when they have been fetched (`pnpm fetch:models`); skipped otherwise.
+describe.skipIf(!isSegmentationAvailable())("segmentation (real models)", () => {
   it("separates a product from a plain background at the original size", async () => {
     const W = 600, H = 400;
     const photo = await sharp(Buffer.from(`<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">

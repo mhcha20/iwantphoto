@@ -23,8 +23,8 @@ describe("batch progress estimation", () => {
       currentStartedAt: 0,
     }, 9_000);
 
-    expect(result.percentage).toBe(17);
-    expect(result.remainingSeconds).toBe(45);
+    expect(result.percentage).toBe(8);
+    expect(result.remainingSeconds).toBe(99);
   });
 
   it("formats estimated time in Traditional Chinese", () => {
@@ -34,7 +34,7 @@ describe("batch progress estimation", () => {
   });
 
   it("shows an estimated single-image percentage without reporting completion early", () => {
-    expect(estimateSingleImageProgress(0, 9_000)).toMatchObject({ percentage: 50, remainingSeconds: 9 });
-    expect(estimateSingleImageProgress(0, 30_000)).toMatchObject({ percentage: 95, remainingSeconds: 0 });
+    expect(estimateSingleImageProgress(0, 18_000)).toMatchObject({ percentage: 50, remainingSeconds: 18 });
+    expect(estimateSingleImageProgress(0, 60_000)).toMatchObject({ percentage: 95, remainingSeconds: 0 });
   });
 });

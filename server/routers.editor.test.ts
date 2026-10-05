@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
   setStorageEmailAlertsEnabled: vi.fn(),
   spendPrepaidCredit: vi.fn(),
   updateUserImageStorageBytes: vi.fn(),
+  updateUserImageProcessed: vi.fn(),
   updateUserDisplayName: vi.fn(),
   updateUserAvatarUrl: vi.fn(),
   updateAdminTestPlan: vi.fn(),
@@ -105,6 +106,7 @@ vi.mock("./db", () => ({
   setStorageEmailAlertsEnabled: mocks.setStorageEmailAlertsEnabled,
   spendPrepaidCredit: mocks.spendPrepaidCredit,
   updateUserImageStorageBytes: mocks.updateUserImageStorageBytes,
+  updateUserImageProcessed: mocks.updateUserImageProcessed,
   updateUserDisplayName: mocks.updateUserDisplayName,
   updateUserAvatarUrl: mocks.updateUserAvatarUrl,
   updateAdminTestPlan: mocks.updateAdminTestPlan,
@@ -115,6 +117,7 @@ vi.mock("./db", () => ({
   recordProcessingUsage: mocks.recordProcessingUsage,
 }));
 
+import sharp from "sharp";
 import { appRouter } from "./routers";
 
 function createContext(): TrpcContext {
@@ -1209,6 +1212,48 @@ describe("editor.process", () => {
     await expect(caller.library.removeUnclassified({ imageIds: [12, 13] })).resolves.toEqual({ removed: 2 });
     expect(mocks.removeUnclassifiedUserImages).toHaveBeenCalledWith(42, [12, 13]);
     expect(mocks.getUserImageStorageBytes).toHaveBeenCalledWith(42);
+  });
+});
+
+describe("editor.saveTouchUp", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.storagePut.mockResolvedValue({ key: "generated/touchup.png", url: "/manus-storage/generated/touchup.png" });
+    mocks.getUserImageForUser.mockResolvedValue({ id: 88, userId: 42, processedUrl: "/manus-storage/generated/old.png" });
+  });
+
+  const pngData = async () => `data:image/png;base64,${(await sharp({ create: { width: 40, height: 30, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer()).toString("base64")}`;
+
+  it("replaces the owner's processed image without using AI or credit", async () => {
+    const caller = appRouter.createCaller(createAuthenticatedContext());
+    const result = await caller.editor.saveTouchUp({ imageId: 88, imageData: await pngData() });
+    expect(result.url).toBe("/manus-storage/generated/touchup.png");
+    expect(mocks.getUserImageForUser).toHaveBeenCalledWith(42, 88);
+    expect(mocks.storagePut).toHaveBeenCalledWith(expect.stringMatching(/^generated\/touchup-\d+\.png$/), expect.any(Buffer), "image/png");
+    expect(mocks.updateUserImageProcessed).toHaveBeenCalledWith(42, 88, { processedUrl: "/manus-storage/generated/touchup.png", processedBytes: expect.any(Number) });
+    expect(mocks.generateImage).not.toHaveBeenCalled();
+    expect(mocks.spendPrepaidCredit).not.toHaveBeenCalled();
+    expect(mocks.recordProcessingUsage).not.toHaveBeenCalled();
+  });
+
+  it("refuses an image that belongs to someone else", async () => {
+    mocks.getUserImageForUser.mockResolvedValue(undefined);
+    const caller = appRouter.createCaller(createAuthenticatedContext());
+    await expect(caller.editor.saveTouchUp({ imageId: 99, imageData: await pngData() })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(mocks.storagePut).not.toHaveBeenCalled();
+    expect(mocks.updateUserImageProcessed).not.toHaveBeenCalled();
+  });
+
+  it("rejects data that is not a real PNG", async () => {
+    const caller = appRouter.createCaller(createAuthenticatedContext());
+    await expect(caller.editor.saveTouchUp({ imageId: 88, imageData: `data:image/png;base64,${Buffer.from("not-a-real-png-file-at-all").toString("base64")}` })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.editor.saveTouchUp({ imageId: 88, imageData: sampleData })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(mocks.updateUserImageProcessed).not.toHaveBeenCalled();
+  });
+
+  it("requires a signed-in account", async () => {
+    const caller = appRouter.createCaller(createContext());
+    await expect(caller.editor.saveTouchUp({ imageId: 88, imageData: await pngData() })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });
 
